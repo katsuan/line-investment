@@ -28,6 +28,10 @@ function getMarketQuoteByTicker_(ticker, options) {
 
 function getCachedMarketQuoteRecord_(ticker) {
   const record = getMarketDataRecordByTicker_(ticker);
+  return getFreshCachedMarketDataRecord_(record);
+}
+
+function getFreshCachedMarketDataRecord_(record) {
   if (!record) {
     return null;
   }
@@ -47,6 +51,46 @@ function getCachedMarketQuoteRecord_(ticker) {
   }
 
   return record;
+}
+
+function getMarketQuoteMapByTickers_(tickers, options) {
+  const normalizedTickers = Array.from(new Set((tickers || []).map(function(ticker) {
+    return normalizeTickerCode_(ticker);
+  }).filter(function(ticker) {
+    return !!ticker;
+  })));
+  const settings = options || {};
+  const quoteMap = {};
+  if (normalizedTickers.length === 0) {
+    return quoteMap;
+  }
+
+  let latestRecordMap = {};
+  if (!settings.forceRefresh) {
+    latestRecordMap = getLatestMarketDataRecordMapByTickers_(normalizedTickers);
+  }
+
+  normalizedTickers.forEach(function(ticker) {
+    const latestRecord = latestRecordMap[ticker] || null;
+    const freshRecord = !settings.forceRefresh ? getFreshCachedMarketDataRecord_(latestRecord) : null;
+    if (freshRecord) {
+      quoteMap[ticker] = marketDataRecordToQuote_(freshRecord);
+      return;
+    }
+
+    if (settings.useLatestCacheOnly) {
+      quoteMap[ticker] = latestRecord ? marketDataRecordToQuote_(latestRecord) : null;
+      return;
+    }
+
+    try {
+      quoteMap[ticker] = getMarketQuoteByTicker_(ticker, settings);
+    } catch (error) {
+      quoteMap[ticker] = null;
+    }
+  });
+
+  return quoteMap;
 }
 
 function marketDataRecordToQuote_(record) {

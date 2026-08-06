@@ -23,8 +23,8 @@
       direction: 'desc'
     },
     watchlistColumnWidths: {
-      name: 220,
-      marketTicker: 108,
+      marketTicker: 92,
+      name: 188,
       currentPrice: 110,
       addedPrice: 126,
       performanceDelta: 104,
@@ -57,6 +57,7 @@
   const contextBadge = document.getElementById('contextBadge');
   const groupBadge = document.getElementById('groupBadge');
   const userBadge = document.getElementById('userBadge');
+  const debugContextRow = document.getElementById('debugContextRow');
   const tickerInput = document.getElementById('tickerInput');
   const fetchQuoteButton = document.getElementById('fetchQuoteButton');
   const sendTickerButton = document.getElementById('sendTickerButton');
@@ -76,6 +77,13 @@
     if (el) {
       el.textContent = text;
     }
+  }
+
+  function setDebugBadgeVisible(visible) {
+    if (!debugContextRow) {
+      return;
+    }
+    debugContextRow.classList.toggle('is-hidden', !visible);
   }
 
   function getDeltaClass(value) {
@@ -165,8 +173,8 @@
   }
 
   const watchlistColumns = [
-    { key: 'name', label: '銘柄', type: 'text' },
     { key: 'marketTicker', label: 'コード', type: 'text' },
+    { key: 'name', label: '銘柄', type: 'text' },
     { key: 'currentPrice', label: '価格', type: 'number' },
     { key: 'addedPrice', label: '注目時価格', type: 'number' },
     { key: 'performanceDelta', label: '騰落率', type: 'number' },
@@ -334,10 +342,13 @@
     const filteredItems = getWatchlistFilteredItems(items);
     const sortedItems = getWatchlistSortedItems(filteredItems);
     const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
+    const latestCachedAt = state.watchlistPayload && state.watchlistPayload.latestCachedAt
+      ? 'キャッシュ ' + state.watchlistPayload.latestCachedAt
+      : '';
 
     return [
       '<div class="watchlist-toolbar">',
-      '<div class="watchlist-summary">表示 ' + escapeHtml(String(sortedItems.length)) + ' / 全' + escapeHtml(String(items.length)) + '件</div>',
+      '<div class="watchlist-summary">表示 ' + escapeHtml(String(sortedItems.length)) + ' / 全' + escapeHtml(String(items.length)) + '件' + (latestCachedAt ? ' ・ ' + escapeHtml(latestCachedAt) : '') + '</div>',
       '<button class="ghost-button compact" data-watchlist-reset type="button">条件クリア</button>',
       '</div>',
       '<div class="watchlist-table-wrap">',
@@ -372,8 +383,8 @@
       ].join('') : sortedItems.map(function(item) {
         return [
           '<tr>',
-          '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
           '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
+          '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
           '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
           '<td class="mono">' + escapeHtml(item.addedPrice || '-') + '</td>',
           '<td class="mono delta ' + getDeltaClass(item.performanceDelta || '') + '">' + escapeHtml(item.performanceDelta || '-') + '</td>',
@@ -489,6 +500,7 @@
 
   async function initializeLiff() {
     if (!window.liff || !state.liffId) {
+      setDebugBadgeVisible(true);
       state.userId = config.debugUserId || '';
       setBadge(contextBadge, state.liffId ? 'ローカルデバッグ' : 'LIFF ID未設定');
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
@@ -499,6 +511,7 @@
 
     try {
       await window.liff.init({ liffId: state.liffId });
+      setDebugBadgeVisible(false);
       const context = window.liff.getContext ? window.liff.getContext() : null;
       const profile = window.liff.getProfile ? await window.liff.getProfile() : null;
       state.userId = (profile && profile.userId) || (context && context.userId) || '';
@@ -507,6 +520,7 @@
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
     } catch (error) {
+      setDebugBadgeVisible(true);
       state.userId = config.debugUserId || '';
       setBadge(contextBadge, 'LIFF初期化失敗');
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
@@ -539,7 +553,7 @@
   function renderViewFromPayload(view, payload) {
     if (view === 'watchlist') {
       renderWatchlist(payload);
-      watchlistHint.textContent = '注目一覧をローカル保持しています。更新時のみ再取得します。';
+      setLoadingState(watchlistHint, '注目一覧をローカル保持しています。更新時のみ再取得します。', false);
       updateSearchWatchState();
       return;
     }
@@ -607,7 +621,7 @@
       '<div class="metric-block"><p>時価総額</p><h4 class="mono">' + escapeHtml(payload.marketCap || '-') + '</h4></div>',
       '<div class="metric-block"><p>PER / 出来高</p><h4 class="mono">' + escapeHtml(payload.per || '-') + ' / ' + escapeHtml(String(payload.volume || '-')) + '</h4></div>',
       '</div>',
-      '<div class="record-row"><span>' + watchStateText + '</span><span>注目時 ' + escapeHtml(payload.addedPrice || '-') + '</span></div>',
+      '<div class="record-row"><span>' + watchStateText + '</span><span>注目時価格 ' + escapeHtml(payload.addedPrice || '-') + '</span></div>',
       '</article>'
     ].join('');
   }

@@ -37,6 +37,10 @@ body {
   margin-bottom: 12px;
 }
 
+.context-row.is-hidden {
+  display: none;
+}
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -328,7 +332,7 @@ body {
 }
 
 .company-cell {
-  min-width: 180px;
+  min-width: 156px;
 }
 
 .table-empty {

@@ -388,6 +388,36 @@ function getMarketDataRecordByTicker_(ticker) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+function getLatestMarketDataRecordMapByTickers_(tickers) {
+  const normalizedTickers = Array.from(new Set((tickers || []).map(function(ticker) {
+    return normalizeTickerCode_(ticker);
+  }).filter(function(ticker) {
+    return !!ticker;
+  })));
+  if (normalizedTickers.length === 0) {
+    return {};
+  }
+
+  const lookup = {};
+  normalizedTickers.forEach(function(ticker) {
+    lookup[ticker] = true;
+  });
+
+  const latestMap = {};
+  getTableData_(SHEET_NAMES_.MARKET_DATA).rows.forEach(function(row) {
+    const ticker = normalizeTickerCode_(row.ticker);
+    if (!lookup[ticker]) {
+      return;
+    }
+
+    if (!latestMap[ticker] || String(row.updatedAt || '') > String(latestMap[ticker].updatedAt || '')) {
+      latestMap[ticker] = row;
+    }
+  });
+
+  return latestMap;
+}
+
 function appendEventLog_(eventLog) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.EVENT_LOG);

@@ -418,17 +418,17 @@ function getActorProfileForGroup_(groupId, userId) {
 
 function hydrateRecentWatchlistWithCurrentQuotes_(records, options) {
   const settings = options || {};
-  return records.slice(0, DEFAULT_WATCHLIST_RECENT_LIMIT_).map(function(record) {
-    let currentQuote = null;
-    try {
-      currentQuote = getMarketQuoteByTicker_(record.ticker, {
-        forceRefresh: !!settings.forceRefresh,
-      });
-    } catch (error) {
-      currentQuote = null;
-    }
+  const recentRecords = records.slice(0, DEFAULT_WATCHLIST_RECENT_LIMIT_);
+  const quoteMap = getMarketQuoteMapByTickers_(recentRecords.map(function(record) {
+    return record.ticker;
+  }), {
+    forceRefresh: !!settings.forceRefresh,
+    useLatestCacheOnly: !settings.forceRefresh,
+  });
+
+  return recentRecords.map(function(record) {
     return Object.assign({}, record, {
-      currentQuote: currentQuote,
+      currentQuote: quoteMap[normalizeTickerCode_(record.ticker)] || null,
     });
   });
 }
@@ -519,6 +519,12 @@ function addAllowedGroupId_(groupId) {
 function buildWatchPerformanceStats_(groupId, options) {
   const settings = options || {};
   const records = getActiveWatchlistByGroup_(groupId);
+  const quoteMap = getMarketQuoteMapByTickers_(records.map(function(record) {
+    return record.ticker;
+  }), {
+    forceRefresh: !!settings.forceRefresh,
+    useLatestCacheOnly: !settings.forceRefresh,
+  });
   const statsByUser = {};
   records.forEach(function(record) {
     const key = String(record.addedByUserId || record.addedByDisplayName || 'unknown');
@@ -535,18 +541,12 @@ function buildWatchPerformanceStats_(groupId, options) {
 
     statsByUser[key].pickCount += 1;
 
-    try {
-      const quote = getMarketQuoteByTicker_(record.ticker, {
-        forceRefresh: !!settings.forceRefresh,
-      });
-      const current = Number(quote && quote.price);
-      const base = Number(record.addedPrice);
-      if (!Number.isNaN(current) && !Number.isNaN(base) && base !== 0) {
-        statsByUser[key].deltaSum += ((current - base) / base) * 100;
-        statsByUser[key].deltaCount += 1;
-      }
-    } catch (error) {
-      // Skip quotes that couldn't be fetched for the summary.
+    const quote = quoteMap[normalizeTickerCode_(record.ticker)] || null;
+    const current = Number(quote && quote.price);
+    const base = Number(record.addedPrice);
+    if (!Number.isNaN(current) && !Number.isNaN(base) && base !== 0) {
+      statsByUser[key].deltaSum += ((current - base) / base) * 100;
+      statsByUser[key].deltaCount += 1;
     }
   });
 
@@ -673,17 +673,16 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     }
   }
 
+  const quoteMap = getMarketQuoteMapByTickers_(filteredRecords.map(function(row) {
+    return row.ticker;
+  }), {
+    forceRefresh: !!settings.forceRefresh,
+    useLatestCacheOnly: !settings.forceRefresh,
+  });
+
   const hydratedRecords = filteredRecords.map(function(record) {
-    let currentQuote = null;
-    try {
-      currentQuote = getMarketQuoteByTicker_(record.ticker, {
-        forceRefresh: !!settings.forceRefresh,
-      });
-    } catch (error) {
-      currentQuote = null;
-    }
     return Object.assign({}, record, {
-      currentQuote: currentQuote,
+      currentQuote: quoteMap[normalizeTickerCode_(record.ticker)] || null,
     });
   });
 
@@ -745,8 +744,16 @@ function buildLiffWatchlistPayload_(groupId, options) {
   const hydratedRecords = hydrateRecentWatchlistWithCurrentQuotes_(records, {
     forceRefresh: !!settings.forceRefresh,
   });
+  let latestCachedAt = '';
+  hydratedRecords.forEach(function(record) {
+    const cachedAt = record.currentQuote && record.currentQuote.fetchedAt ? record.currentQuote.fetchedAt : '';
+    if (cachedAt && String(cachedAt) > String(latestCachedAt)) {
+      latestCachedAt = cachedAt;
+    }
+  });
   return {
     totalCount: records.length,
+    latestCachedAt: latestCachedAt,
     items: hydratedRecords.map(function(record) {
       const quote = record.currentQuote || null;
       const currentPrice = quote && quote.price ? quote.price : '';
