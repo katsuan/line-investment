@@ -164,6 +164,21 @@
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  function formatDateTimeDisplay(value) {
+    const parsed = parseDateValue(value);
+    if (parsed === null) {
+      return String(value || '');
+    }
+    return new Date(parsed).toLocaleString('ja-JP', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    }).replace(/-/g, '/');
+  }
+
   function getTickerCode(value) {
     const raw = String(value || '').trim();
     if (!raw) {
@@ -343,7 +358,7 @@
     const sortedItems = getWatchlistSortedItems(filteredItems);
     const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
     const latestCachedAt = state.watchlistPayload && state.watchlistPayload.latestCachedAt
-      ? 'キャッシュ ' + state.watchlistPayload.latestCachedAt
+      ? 'キャッシュ ' + formatDateTimeDisplay(state.watchlistPayload.latestCachedAt)
       : '';
 
     return [
@@ -489,20 +504,20 @@
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try {
         await navigator.clipboard.writeText(command);
-        searchStatus.textContent = 'LIFF外のため送信できません。' + command + ' をコピーして入力欄にも入れました。';
+        searchStatus.textContent = 'この環境では送信できません。' + command + ' をコピーして入力欄にも入れました。';
         return;
       } catch (error) {
         // Continue to the plain fallback.
       }
     }
-    searchStatus.textContent = 'LIFF外のため送信できません。' + command + ' を入力欄に入れました。';
+    searchStatus.textContent = 'この環境では送信できません。' + command + ' を入力欄に入れました。';
   }
 
   async function initializeLiff() {
     if (!window.liff || !state.liffId) {
       setDebugBadgeVisible(true);
       state.userId = config.debugUserId || '';
-      setBadge(contextBadge, state.liffId ? 'ローカルデバッグ' : 'LIFF ID未設定');
+      setBadge(contextBadge, state.liffId ? 'ローカルデバッグ' : 'ID未設定');
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
       searchStatus.textContent = 'ローカル表示中です。debugGroupId / debugUserId でデータ取得し、送信はコピーへフォールバックします。';
@@ -516,16 +531,16 @@
       const profile = window.liff.getProfile ? await window.liff.getProfile() : null;
       state.userId = (profile && profile.userId) || (context && context.userId) || '';
       state.initialized = true;
-      setBadge(contextBadge, 'LIFF ' + ((context && context.type) || 'unknown'));
+      setBadge(contextBadge, 'debug ' + ((context && context.type) || 'unknown'));
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
     } catch (error) {
       setDebugBadgeVisible(true);
       state.userId = config.debugUserId || '';
-      setBadge(contextBadge, 'LIFF初期化失敗');
+      setBadge(contextBadge, '初期化失敗');
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
-      searchStatus.textContent = 'LIFF初期化に失敗したため、debugGroupId / debugUserId を使うデバッグ表示へ切り替えました。';
+      searchStatus.textContent = '起動に失敗したため、debugGroupId / debugUserId を使うデバッグ表示へ切り替えました。';
     }
   }
 
