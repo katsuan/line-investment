@@ -884,8 +884,9 @@
   initializeLiff().finally(function() {
     setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
     setBadge(userBadge, 'user: ' + (state.userId || '-'));
-    loadView('watchlist').finally(function() {
-      setActiveView(state.activeView, { silent: false });
-    });
+    setActiveView(state.activeView, { silent: false, forceReload: true });
+    if (state.activeView !== 'watchlist') {
+      loadView('watchlist');
+    }
   });
 })();
