@@ -168,7 +168,7 @@
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
     } catch (error) {
       setBadge(contextBadge, 'LIFF初期化失敗');
-      searchStatus.textContent = 'LIFF 初期化に失敗しました。query の liffId / apiBaseUrl を確認してください。';
+      searchStatus.textContent = 'LIFF 初期化に失敗しました。docs/liff/config.js の liffId / apiBaseUrl を確認してください。';
     }
   }
 

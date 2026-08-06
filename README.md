@@ -87,6 +87,29 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 Bot 側はこの URL に `groupId` と初期 `view` を付けて返します。
 
+### LIFF フロント設定
+
+`docs/liff/` では `window.APP_CONFIG` を使って設定を読みます。
+
+- `docs/liff/config.js`
+  実運用で読み込む設定ファイル
+- `docs/liff/config.example.js`
+  設定例
+
+設定する値:
+
+- `liffId`
+- `apiBaseUrl`
+
+例:
+
+```js
+window.APP_CONFIG = {
+  liffId: 'YOUR_LIFF_ID',
+  apiBaseUrl: 'YOUR_GAS_WEBAPP_URL'
+};
+```
+
 ### LIFF API
 
 デバッグ時の LIFF フロントは、GAS の `doGet` に対して次の形式で問い合わせます。
