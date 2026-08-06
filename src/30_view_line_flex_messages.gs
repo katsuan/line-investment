@@ -1533,9 +1533,10 @@ function buildWatchRegistrationFlexMessage_(record, quote) {
   const marketFlag = buildMarketFlagEmoji_(marketTicker);
   const metricBoxes = buildAvailableMetricBoxes_(quote);
   const pickerName = toLineText_(record.addedByDisplayName, '');
+  const altLabel = '(' + record.ticker + ')' + title;
   const altText = pickerName
-    ? '📌 ' + record.ticker + ' を' + pickerName + 'がピックしました'
-    : '📌 ' + record.ticker + ' をピックしました';
+    ? '📌 ' + altLabel + 'を' + pickerName + 'がピックしました'
+    : '📌 ' + altLabel + 'をピックしました';
 
   return {
     type: 'flex',
@@ -1798,13 +1799,6 @@ function buildWatchAlreadyActiveFlexMessage_(record, quote) {
           margin: 'md',
           contents: metricBoxes,
         }] : []).concat([
-          {
-            type: 'text',
-            text: '初回ピッカー: ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-'),
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
           {
             type: 'text',
             text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + ' / ' + formatDateDisplayOnly_(record.addedAt),

@@ -426,9 +426,7 @@
   }
 
   function setActiveView(view, options) {
-    if (state.activeView === view && (!options || !options.forceReload)) {
-      return;
-    }
+    const isSameView = state.activeView === view;
     state.activeView = view;
     tabs.forEach((tab) => {
       tab.classList.toggle('is-active', tab.dataset.view === view);
@@ -436,6 +434,10 @@
     panels.forEach((panel) => {
       panel.classList.toggle('is-active', panel.dataset.panel === view);
     });
+
+    if (isSameView && (!options || !options.forceReload)) {
+      return;
+    }
 
     if (!options || !options.silent) {
       if (view === 'watchlist' || view === 'performance') {
