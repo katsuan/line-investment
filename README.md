@@ -79,6 +79,21 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 `#LIFF一覧` は通常の使い方ガイドには載せず、デバッグ期間中のみ利用します。
 
+### GitHub Pages デプロイ
+
+このリポジトリでは、`docs/` を GitHub Actions 経由で GitHub Pages へデプロイします。
+
+- workflow: [deploy-github-pages.yml](/Users/katsu/GitHub/T-FONTE投資部/.github/workflows/deploy-github-pages.yml)
+- 対象ブランチ: `main`
+- 配布対象: `docs/`
+
+初回のみ GitHub 側で次を確認してください。
+
+1. Repository Settings → Pages
+2. Build and deployment の Source を `GitHub Actions` にする
+
+以後は `docs/` 配下を `main` へ push すると、自動で Pages へ反映されます。
+
 ### LIFF URL
 
 `LIFF_APP_BASE_URL` には、GitHub Pages 側の LIFF URL を設定します。例:
