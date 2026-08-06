@@ -14,7 +14,7 @@ Google Apps Script と LINE Messaging API で動かす、LINE投資グループ�
 - `src/98_shared_utilities.gs`: 共通ユーティリティ
 - `src/99_config.gs`: Script Properties と定数
 - `src/appsscript.json`: GASマニフェスト
-- `pages/liff/`: GitHub Pages で配信する LIFF フロントの静的ファイル
+- `docs/liff/`: GitHub Pages で配信する LIFF フロントの静的ファイル
 - `RULES/`: このプロジェクト固有の運用前提、公開構成、段階導入ルール
 
 番号は責務の層を表しています。
@@ -27,7 +27,7 @@ Google Apps Script と LINE Messaging API で動かす、LINE投資グループ�
 - `90`: setup
 - `98-99`: shared / config
 
-公開フロントは `src/` と混在させず、`pages/` 配下へ分離しています。
+公開フロントは `src/` と混在させず、`docs/` 配下へ分離しています。
 
 ## 事前準備
 
@@ -83,7 +83,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 `LIFF_APP_BASE_URL` には、GitHub Pages 側の LIFF URL を設定します。例:
 
-- `https://<user>.github.io/<repo>/pages/liff/`
+- `https://<user>.github.io/<repo>/liff/`
 
 Bot 側はこの URL に `groupId` と初期 `view` を付けて返します。
 
@@ -106,7 +106,7 @@ Bot 側はこの URL に `groupId` と初期 `view` を付けて返します。
 - `ルールを確認しました` 押下で `MEMBERS.agreedAt` と `agreedRuleVersion` が更新されること
 - `#ルール`, `#未確認`, `#Bot設定` が動作すること
 - `#LIFF一覧` で LIFF 起動用 Flex が返ること
-- `pages/liff/` の画面で `watchlist` / `performance` が個別取得できること
+- `docs/liff/` の画面で `watchlist` / `performance` が個別取得できること
 
 ## 注意点
 

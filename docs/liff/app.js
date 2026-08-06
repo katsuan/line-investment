@@ -8,15 +8,20 @@
     apiBaseUrl: query.get('apiBaseUrl') || config.apiBaseUrl || '',
     liffId: query.get('liffId') || config.liffId || '',
     initialized: false,
+    watchlistPayload: null,
   };
 
   const contextBadge = document.getElementById('contextBadge');
   const groupBadge = document.getElementById('groupBadge');
   const userBadge = document.getElementById('userBadge');
   const tickerInput = document.getElementById('tickerInput');
+  const fetchQuoteButton = document.getElementById('fetchQuoteButton');
   const sendTickerButton = document.getElementById('sendTickerButton');
   const fillTickerButton = document.getElementById('fillTickerButton');
   const searchStatus = document.getElementById('searchStatus');
+  const watchlistHint = document.getElementById('watchlistHint');
+  const searchWatchState = document.getElementById('searchWatchState');
+  const quotePreview = document.getElementById('quotePreview');
   const watchlistLoading = document.getElementById('watchlistLoading');
   const watchlistContent = document.getElementById('watchlistContent');
   const performanceLoading = document.getElementById('performanceLoading');
@@ -80,6 +85,35 @@
     return String(tickerInput.value || '').trim().toUpperCase().replace(/^#/, '');
   }
 
+  function findWatchItemByTicker(ticker) {
+    const items = (state.watchlistPayload && state.watchlistPayload.items) || [];
+    return items.find(function(item) {
+      return String(item.ticker || '').toUpperCase() === String(ticker || '').toUpperCase();
+    }) || null;
+  }
+
+  function updateSearchWatchState() {
+    const ticker = normalizeTickerInput();
+    if (!ticker) {
+      searchWatchState.textContent = '';
+      return;
+    }
+
+    if (!state.watchlistPayload) {
+      searchWatchState.textContent = '注目一覧の取得完了後に、利用中かどうかをここへ表示します。';
+      return;
+    }
+
+    const watchItem = findWatchItemByTicker(ticker);
+    if (watchItem) {
+      searchWatchState.textContent = ticker + ' は注目中です。' +
+        (watchItem.addedByDisplayName ? ' 注目 ' + watchItem.addedByDisplayName + ' / ' + watchItem.addedAt : '');
+      return;
+    }
+
+    searchWatchState.textContent = ticker + ' は現在の注目一覧には入っていません。';
+  }
+
   async function sendTickerCommand() {
     const ticker = normalizeTickerInput();
     if (!ticker) {
@@ -139,6 +173,10 @@
   }
 
   async function fetchJson(view) {
+    return fetchJsonWithParams(view, {});
+  }
+
+  async function fetchJsonWithParams(view, extraParams) {
     if (!state.apiBaseUrl) {
       throw new Error('apiBaseUrl is missing');
     }
@@ -154,6 +192,11 @@
     url.searchParams.set('groupId', state.groupId);
     url.searchParams.set('view', view);
     url.searchParams.set('userId', state.userId);
+    Object.keys(extraParams || {}).forEach(function(key) {
+      if (extraParams[key] !== '' && extraParams[key] !== null && typeof extraParams[key] !== 'undefined') {
+        url.searchParams.set(key, extraParams[key]);
+      }
+    });
 
     const response = await fetch(url.toString(), { method: 'GET' });
     const data = await response.json();
@@ -161,6 +204,56 @@
       throw new Error(data.error || 'request failed');
     }
     return data.data;
+  }
+
+  function renderQuotePreview(payload) {
+    if (!payload) {
+      quotePreview.innerHTML = '';
+      return;
+    }
+
+    const watchStateText = payload.isWatched
+      ? '注目中: ' + escapeHtml(payload.watchedBy || '-') + ' / ' + escapeHtml(payload.watchedAt || '-')
+      : '未注目';
+
+    quotePreview.innerHTML = [
+      '<article class="data-card">',
+      '<div class="card-head">',
+      '<div class="title-block">',
+      '<h3>' + escapeHtml((payload.marketFlag ? payload.marketFlag + ' ' : '') + (payload.name || payload.ticker)) + '</h3>',
+      '<p>' + escapeHtml(payload.marketTicker || '-') + ' / ' + escapeHtml(payload.source || '') + '</p>',
+      '</div>',
+      '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(payload.ticker || '-') + '</a>',
+      '</div>',
+      '<div class="stat-row">',
+      '<div class="metric-block"><h4 class="mono">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>' + escapeHtml(payload.changePercent || '-') + '</p></div>',
+      '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(payload.performanceDelta || '') + '">' + escapeHtml(payload.performanceDelta || '-') + '</h4><p>注目時比</p></div>',
+      '</div>',
+      '<div class="record-row">',
+      '<div class="metric-block"><strong>時価総額</strong><p>' + escapeHtml(payload.marketCap || '-') + '</p></div>',
+      '<div class="metric-block"><strong>PER / 出来高</strong><p>' + escapeHtml(payload.per || '-') + ' / ' + escapeHtml(String(payload.volume || '-')) + '</p></div>',
+      '</div>',
+      '<div class="record-row"><span>' + watchStateText + '</span><span>注目時 ' + escapeHtml(payload.addedPrice || '-') + '</span></div>',
+      '</article>'
+    ].join('');
+  }
+
+  async function fetchQuotePreview() {
+    const ticker = normalizeTickerInput();
+    if (!ticker) {
+      searchStatus.textContent = '銘柄コードを入力してください。';
+      return;
+    }
+
+    searchStatus.textContent = ticker + ' の株情報を取得中です。';
+    quotePreview.innerHTML = '';
+    try {
+      const data = await fetchJsonWithParams('quote', { ticker: ticker });
+      renderQuotePreview(data);
+      searchStatus.textContent = ticker + ' の株情報を更新しました。';
+    } catch (error) {
+      searchStatus.textContent = '株情報の取得に失敗しました: ' + error.message;
+    }
   }
 
   function renderWatchlist(payload) {
@@ -274,7 +367,10 @@
     try {
       const data = await fetchJson(view);
       if (view === 'watchlist') {
+        state.watchlistPayload = data;
         renderWatchlist(data);
+        watchlistHint.textContent = '注目一覧を読み込み済みです。検索時に利用中かどうかも表示します。';
+        updateSearchWatchState();
       } else {
         renderPerformance(data);
       }
@@ -296,12 +392,16 @@
     });
   });
 
+  tickerInput.addEventListener('input', updateSearchWatchState);
+  fetchQuoteButton.addEventListener('click', fetchQuotePreview);
   sendTickerButton.addEventListener('click', sendTickerCommand);
   fillTickerButton.addEventListener('click', fillTickerCommand);
 
   initializeLiff().finally(function() {
     setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
     setBadge(userBadge, 'user: ' + (state.userId || '-'));
-    setActiveView(state.activeView, { silent: false });
+    loadView('watchlist').finally(function() {
+      setActiveView(state.activeView, { silent: false });
+    });
   });
 })();

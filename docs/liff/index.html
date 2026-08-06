@@ -38,11 +38,15 @@
                 <span>銘柄コード</span>
                 <input id="tickerInput" type="text" placeholder="7203 / AAPL / 212A" autocomplete="off" />
               </label>
+              <div id="watchlistHint" class="loading-state">注目一覧を読み込み中です。</div>
               <div class="actions">
+                <button id="fetchQuoteButton" class="ghost-button" type="button">株情報を確認</button>
                 <button id="sendTickerButton" class="primary-button" type="button">チャットへ送る</button>
                 <button id="fillTickerButton" class="ghost-button" type="button">#を付けて確認</button>
               </div>
               <p id="searchStatus" class="status-text">LIFF経由の送信は、トークから起動した時に使えます。</p>
+              <div id="searchWatchState" class="status-text"></div>
+              <div id="quotePreview" class="card-list"></div>
             </div>
           </div>
         </section>
