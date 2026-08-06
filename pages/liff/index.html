@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>T-FONTE投資部 LIFF</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="hero">
+        <p class="eyebrow">T-FONTE投資部</p>
+        <h1>LIFF Dashboard</h1>
+        <p class="hero-copy">銘柄検索、注目一覧、注目実績を 1 つの画面で切り替えます。</p>
+        <div class="context-row">
+          <span id="contextBadge" class="badge">LIFF未初期化</span>
+          <span id="groupBadge" class="badge subtle">group: -</span>
+          <span id="userBadge" class="badge subtle">user: -</span>
+        </div>
+      </header>
+
+      <nav class="tab-bar" aria-label="main tabs">
+        <button class="tab is-active" data-view="search" type="button">銘柄検索</button>
+        <button class="tab" data-view="watchlist" type="button">注目一覧</button>
+        <button class="tab" data-view="performance" type="button">注目実績</button>
+      </nav>
+
+      <main class="panel-stack">
+        <section id="panel-search" class="panel is-active" data-panel="search">
+          <div class="panel-card">
+            <div class="section-head">
+              <h2>銘柄検索</h2>
+              <p>コードを入力して、チャットへ `#ticker` を送ります。</p>
+            </div>
+            <div class="search-box">
+              <label class="field">
+                <span>銘柄コード</span>
+                <input id="tickerInput" type="text" placeholder="7203 / AAPL / 212A" autocomplete="off" />
+              </label>
+              <div class="actions">
+                <button id="sendTickerButton" class="primary-button" type="button">チャットへ送る</button>
+                <button id="fillTickerButton" class="ghost-button" type="button">#を付けて確認</button>
+              </div>
+              <p id="searchStatus" class="status-text">LIFF経由の送信は、トークから起動した時に使えます。</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="panel-watchlist" class="panel" data-panel="watchlist">
+          <div class="panel-card">
+            <div class="section-head">
+              <h2>注目一覧</h2>
+              <button class="ghost-button compact" data-reload-view="watchlist" type="button">更新</button>
+            </div>
+            <div id="watchlistLoading" class="loading-state">読み込み待ちです。</div>
+            <div id="watchlistContent" class="card-list"></div>
+          </div>
+        </section>
+
+        <section id="panel-performance" class="panel" data-panel="performance">
+          <div class="panel-card">
+            <div class="section-head">
+              <h2>注目実績</h2>
+              <button class="ghost-button compact" data-reload-view="performance" type="button">更新</button>
+            </div>
+            <div id="performanceLoading" class="loading-state">読み込み待ちです。</div>
+            <div id="performanceContent" class="card-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
