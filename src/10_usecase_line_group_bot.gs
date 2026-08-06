@@ -244,20 +244,34 @@ function handleMessage_(event) {
   }
 
   if (text === '#注目一覧') {
-    const records = getActiveWatchlistByGroup_(groupId);
-    const recentRecords = hydrateRecentWatchlistWithCurrentQuotes_(records);
-    sendReplyMessage_(event.replyToken, [buildWatchlistSummaryFlexMessage_(groupId, recentRecords, records.length)], groupId);
-    logEventResult_(event, 'command_watchlist', 'success', 'watchlist summary sent', '');
+    const liffUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
+    if (!liffUrl) {
+      sendReplyMessage_(event.replyToken, [{
+        type: 'text',
+        text: '画面の起動URLが未設定です。',
+      }], groupId);
+      logEventResult_(event, 'command_watchlist', 'ignored', 'LIFF_APP_BASE_URL missing', '');
+      return;
+    }
+
+    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl)], groupId);
+    logEventResult_(event, 'command_watchlist', 'success', 'watchlist launch sent', liffUrl);
     return;
   }
 
   if (text === '#注目実績') {
-    const stats = buildWatchPerformanceStats_(groupId);
-    const topSpotlight = buildTopPerformerWatchSpotlightData_(groupId, stats);
-    const randomSpotlight = buildNonTopRandomWatchSpotlightData_(groupId, stats);
-    const statsMessage = buildWatchPerformanceSummaryFlexMessage_(groupId, stats, topSpotlight, randomSpotlight);
-    sendReplyMessage_(event.replyToken, [statsMessage], groupId);
-    logEventResult_(event, 'command_watch_performance', 'success', 'watch performance summary sent', '');
+    const liffUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
+    if (!liffUrl) {
+      sendReplyMessage_(event.replyToken, [{
+        type: 'text',
+        text: '画面の起動URLが未設定です。',
+      }], groupId);
+      logEventResult_(event, 'command_watch_performance', 'ignored', 'LIFF_APP_BASE_URL missing', '');
+      return;
+    }
+
+    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl)], groupId);
+    logEventResult_(event, 'command_watch_performance', 'success', 'watch performance launch sent', liffUrl);
     return;
   }
 

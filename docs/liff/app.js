@@ -833,24 +833,23 @@
       }
     }
   });
-  watchlistContent.addEventListener('input', function(event) {
+  watchlistContent.addEventListener('change', function(event) {
+    const filterSelect = event.target.closest('[data-filter-key="addedByDisplayNames"]');
+    if (filterSelect) {
+      state.watchlistFilters.addedByDisplayNames = Array.from(filterSelect.selectedOptions).map(function(option) {
+        return option.value;
+      });
+      if (state.watchlistPayload) {
+        renderWatchlist(state.watchlistPayload);
+      }
+      return;
+    }
+
     const filterInput = event.target.closest('[data-filter-key]');
     if (!filterInput) {
       return;
     }
     state.watchlistFilters[filterInput.dataset.filterKey] = filterInput.value;
-    if (state.watchlistPayload) {
-      renderWatchlist(state.watchlistPayload);
-    }
-  });
-  watchlistContent.addEventListener('change', function(event) {
-    const filterSelect = event.target.closest('[data-filter-key="addedByDisplayNames"]');
-    if (!filterSelect) {
-      return;
-    }
-    state.watchlistFilters.addedByDisplayNames = Array.from(filterSelect.selectedOptions).map(function(option) {
-      return option.value;
-    });
     if (state.watchlistPayload) {
       renderWatchlist(state.watchlistPayload);
     }

@@ -327,7 +327,7 @@ function buildBotSettingsFlexMessage_(group) {
 function buildLiffLaunchFlexMessage_(liffUrl) {
   return {
     type: 'flex',
-    altText: 'LIFF一覧を開く',
+    altText: '注目一覧を開く',
     contents: {
       type: 'bubble',
       body: {
@@ -337,19 +337,19 @@ function buildLiffLaunchFlexMessage_(liffUrl) {
         contents: [
           {
             type: 'text',
-            text: 'LIFFデバッグ',
+            text: '注目一覧を開く',
             weight: 'bold',
             size: 'md',
           },
           {
             type: 'text',
-            text: 'GitHub Pages 上の LIFF で注目一覧 / 注目実績を確認します。',
+            text: '一覧と実績を画面で確認できます。',
             size: 'sm',
             wrap: true,
           },
           {
             type: 'text',
-            text: '一覧・実績の取得は画面側のタブ操作時に行います。',
+            text: '注目実績は画面内のタブから切り替えできます。',
             size: 'xs',
             color: '#666666',
             wrap: true,
@@ -365,7 +365,7 @@ function buildLiffLaunchFlexMessage_(liffUrl) {
             style: 'primary',
             action: {
               type: 'uri',
-              label: 'LIFFを開く',
+              label: '画面を開く',
               uri: liffUrl,
             },
           },
