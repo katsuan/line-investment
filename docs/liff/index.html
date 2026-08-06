@@ -6,20 +6,23 @@
     <title>T-FONTE投資部 LIFF</title>
     <link rel="stylesheet" href="./styles.css" />
     <script src="./config.js"></script>
+    <script>
+      (function() {
+        var script = document.createElement('script');
+        script.src = './config.local.js';
+        script.onerror = function() {};
+        document.head.appendChild(script);
+      })();
+    </script>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   </head>
   <body>
     <div class="app-shell">
-      <header class="hero">
-        <p class="eyebrow">T-FONTE投資部</p>
-        <h1>LIFF Dashboard</h1>
-        <p class="hero-copy">銘柄検索、注目一覧、注目実績を 1 つの画面で切り替えます。</p>
-        <div class="context-row">
-          <span id="contextBadge" class="badge">LIFF未初期化</span>
-          <span id="groupBadge" class="badge subtle">group: -</span>
-          <span id="userBadge" class="badge subtle">user: -</span>
-        </div>
-      </header>
+      <div class="context-row">
+        <span id="contextBadge" class="badge">LIFF未初期化</span>
+        <span id="groupBadge" class="badge subtle">group: -</span>
+        <span id="userBadge" class="badge subtle">user: -</span>
+      </div>
 
       <nav class="tab-bar" aria-label="main tabs">
         <button class="tab is-active" data-view="search" type="button">銘柄検索</button>
@@ -43,7 +46,6 @@
               <div class="actions">
                 <button id="fetchQuoteButton" class="ghost-button" type="button">株情報を確認</button>
                 <button id="sendTickerButton" class="primary-button" type="button">チャットへ送る</button>
-                <button id="fillTickerButton" class="ghost-button" type="button">#を付けて確認</button>
               </div>
               <p id="searchStatus" class="status-text">LIFF経由の送信は、トークから起動した時に使えます。</p>
               <div id="searchWatchState" class="status-text"></div>

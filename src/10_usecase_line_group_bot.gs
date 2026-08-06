@@ -416,11 +416,14 @@ function getActorProfileForGroup_(groupId, userId) {
   };
 }
 
-function hydrateRecentWatchlistWithCurrentQuotes_(records) {
+function hydrateRecentWatchlistWithCurrentQuotes_(records, options) {
+  const settings = options || {};
   return records.slice(0, DEFAULT_WATCHLIST_RECENT_LIMIT_).map(function(record) {
     let currentQuote = null;
     try {
-      currentQuote = getMarketQuoteByTicker_(record.ticker);
+      currentQuote = getMarketQuoteByTicker_(record.ticker, {
+        forceRefresh: !!settings.forceRefresh,
+      });
     } catch (error) {
       currentQuote = null;
     }
@@ -513,7 +516,8 @@ function addAllowedGroupId_(groupId) {
   return addScriptPropertyListValue_('ALLOWED_GROUP_IDS', groupId);
 }
 
-function buildWatchPerformanceStats_(groupId) {
+function buildWatchPerformanceStats_(groupId, options) {
+  const settings = options || {};
   const records = getActiveWatchlistByGroup_(groupId);
   const statsByUser = {};
   records.forEach(function(record) {
@@ -532,7 +536,9 @@ function buildWatchPerformanceStats_(groupId) {
     statsByUser[key].pickCount += 1;
 
     try {
-      const quote = getMarketQuoteByTicker_(record.ticker);
+      const quote = getMarketQuoteByTicker_(record.ticker, {
+        forceRefresh: !!settings.forceRefresh,
+      });
       const current = Number(quote && quote.price);
       const base = Number(record.addedPrice);
       if (!Number.isNaN(current) && !Number.isNaN(base) && base !== 0) {
@@ -603,7 +609,7 @@ function buildWatchPerformanceStats_(groupId) {
   };
 }
 
-function buildNonTopRandomWatchSpotlightData_(groupId, stats) {
+function buildNonTopRandomWatchSpotlightData_(groupId, stats, options) {
   const rows = (stats && stats.rows) || [];
   if (rows.length <= 1) {
     return null;
@@ -621,25 +627,25 @@ function buildNonTopRandomWatchSpotlightData_(groupId, stats) {
   }
 
   const selected = candidates[Math.floor(Math.random() * candidates.length)];
-  return buildWatchSpotlightDataForUser_(groupId, selected.userId, selected.displayName, {
+  return buildWatchSpotlightDataForUser_(groupId, selected.userId, selected.displayName, Object.assign({
     limit: 3,
     sortByDeltaDesc: false,
-    title: '上位以外 ' + toLineText_(selected.displayName, '不明'),
-  });
+    title: 'ランダム ' + toLineText_(selected.displayName, '不明'),
+  }, options || {}));
 }
 
-function buildTopPerformerWatchSpotlightData_(groupId, stats) {
+function buildTopPerformerWatchSpotlightData_(groupId, stats, options) {
   const rows = (stats && stats.rows) || [];
   if (rows.length === 0) {
     return null;
   }
 
   const topRow = rows[0];
-  return buildWatchSpotlightDataForUser_(groupId, topRow.userId, topRow.displayName, {
+  return buildWatchSpotlightDataForUser_(groupId, topRow.userId, topRow.displayName, Object.assign({
     limit: 3,
     sortByDeltaDesc: true,
     title: '🥇 ' + toLineText_(topRow.displayName, '不明'),
-  });
+  }, options || {}));
 }
 
 function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, options) {
@@ -670,7 +676,9 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
   const hydratedRecords = filteredRecords.map(function(record) {
     let currentQuote = null;
     try {
-      currentQuote = getMarketQuoteByTicker_(record.ticker);
+      currentQuote = getMarketQuoteByTicker_(record.ticker, {
+        forceRefresh: !!settings.forceRefresh,
+      });
     } catch (error) {
       currentQuote = null;
     }
@@ -731,9 +739,12 @@ function buildLiffAppLaunchUrl_(groupId, view) {
     '&view=' + encodeURIComponent(view || 'watchlist');
 }
 
-function buildLiffWatchlistPayload_(groupId) {
+function buildLiffWatchlistPayload_(groupId, options) {
+  const settings = options || {};
   const records = getActiveWatchlistByGroup_(groupId);
-  const hydratedRecords = hydrateRecentWatchlistWithCurrentQuotes_(records);
+  const hydratedRecords = hydrateRecentWatchlistWithCurrentQuotes_(records, {
+    forceRefresh: !!settings.forceRefresh,
+  });
   return {
     totalCount: records.length,
     items: hydratedRecords.map(function(record) {
@@ -763,13 +774,21 @@ function buildLiffWatchlistPayload_(groupId) {
         source: 'Google Finance',
       };
     }),
+    cached: !settings.forceRefresh,
   };
 }
 
-function buildLiffPerformancePayload_(groupId) {
-  const stats = buildWatchPerformanceStats_(groupId);
-  const topSpotlight = buildTopPerformerWatchSpotlightData_(groupId, stats);
-  const randomSpotlight = buildNonTopRandomWatchSpotlightData_(groupId, stats);
+function buildLiffPerformancePayload_(groupId, options) {
+  const settings = options || {};
+  const stats = buildWatchPerformanceStats_(groupId, {
+    forceRefresh: !!settings.forceRefresh,
+  });
+  const topSpotlight = buildTopPerformerWatchSpotlightData_(groupId, stats, {
+    forceRefresh: !!settings.forceRefresh,
+  });
+  const randomSpotlight = buildNonTopRandomWatchSpotlightData_(groupId, stats, {
+    forceRefresh: !!settings.forceRefresh,
+  });
 
   function mapSpotlight_(spotlight) {
     if (!spotlight) {
@@ -814,14 +833,18 @@ function buildLiffPerformancePayload_(groupId) {
     }),
     topSpotlight: mapSpotlight_(topSpotlight),
     randomSpotlight: mapSpotlight_(randomSpotlight),
+    cached: !settings.forceRefresh,
   };
 }
 
-function buildLiffQuotePayload_(groupId, ticker) {
+function buildLiffQuotePayload_(groupId, ticker, options) {
+  const settings = options || {};
   const normalizedTicker = normalizeTickerCode_(ticker);
   let quote = null;
   try {
-    quote = getMarketQuoteByTicker_(normalizedTicker, { forceRefresh: true });
+    quote = getMarketQuoteByTicker_(normalizedTicker, {
+      forceRefresh: !!settings.forceRefresh,
+    });
   } catch (error) {
     quote = null;
   }
@@ -854,5 +877,6 @@ function buildLiffQuotePayload_(groupId, ticker) {
         ? formatSignedPercentDeltaFromBaseScaled_(marketCap, activeRecord.addedMarketCap)
         : formatSignedPercentDeltaFromBase_(currentPrice, activeRecord.addedPrice))
       : '',
+    cached: !settings.forceRefresh,
   };
 }

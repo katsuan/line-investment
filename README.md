@@ -107,9 +107,11 @@ Bot 側はこの URL に `groupId` と初期 `view` を付けて返します。
 `docs/liff/` では `window.APP_CONFIG` を使って設定を読みます。
 
 - `docs/liff/config.js`
-  実運用で読み込む設定ファイル
-- `docs/liff/config.example.js`
-  設定例
+  共有してよい LIFF / API 設定
+- `docs/liff/config.local.js`
+  ローカル専用の debug 設定。Git 管理しない
+- `docs/liff/config.local.example.js`
+  debug 設定例
 
 設定する値:
 
@@ -124,6 +126,8 @@ window.APP_CONFIG = {
   apiBaseUrl: 'YOUR_GAS_WEBAPP_URL'
 };
 ```
+
+debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.example.js` を `docs/liff/config.local.js` として複製し、ローカルだけで保持します。
 
 ### LIFF API
 

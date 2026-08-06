@@ -43,6 +43,7 @@ function processLineGroupBotLiffDataRequest_(request) {
   const groupId = normalizeCommandText_(params.groupId || '');
   const view = normalizeCommandText_(params.view || 'watchlist');
   const userId = normalizeCommandText_(params.userId || '');
+  const forceRefresh = String(params.refresh || '') === '1';
 
   if (!groupId || !userId) {
     return createJsonOutput_({
@@ -64,7 +65,9 @@ function processLineGroupBotLiffDataRequest_(request) {
       groupId: groupId,
       view: view,
       generatedAt: nowJst_(),
-      data: buildLiffWatchlistPayload_(groupId),
+      data: buildLiffWatchlistPayload_(groupId, {
+        forceRefresh: forceRefresh,
+      }),
     });
   }
 
@@ -74,7 +77,9 @@ function processLineGroupBotLiffDataRequest_(request) {
       groupId: groupId,
       view: view,
       generatedAt: nowJst_(),
-      data: buildLiffPerformancePayload_(groupId),
+      data: buildLiffPerformancePayload_(groupId, {
+        forceRefresh: forceRefresh,
+      }),
     });
   }
 
@@ -92,7 +97,9 @@ function processLineGroupBotLiffDataRequest_(request) {
       groupId: groupId,
       view: view,
       generatedAt: nowJst_(),
-      data: buildLiffQuotePayload_(groupId, ticker),
+      data: buildLiffQuotePayload_(groupId, ticker, {
+        forceRefresh: forceRefresh,
+      }),
     });
   }
 

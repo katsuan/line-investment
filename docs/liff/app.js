@@ -3,12 +3,55 @@
   const config = window.APP_CONFIG || {};
   const state = {
     activeView: query.get('view') || 'search',
-    groupId: query.get('groupId') || '',
+    groupId: query.get('groupId') || config.debugGroupId || '',
     userId: '',
     apiBaseUrl: query.get('apiBaseUrl') || config.apiBaseUrl || '',
     liffId: query.get('liffId') || config.liffId || '',
     initialized: false,
     watchlistPayload: null,
+    performancePayload: null,
+    cacheFetchedAt: {
+      watchlist: 0,
+      performance: 0
+    },
+    inFlightLoads: {
+      watchlist: null,
+      performance: null
+    },
+    watchlistSort: {
+      key: 'addedAt',
+      direction: 'desc'
+    },
+    watchlistColumnWidths: {
+      name: 220,
+      marketTicker: 108,
+      currentPrice: 110,
+      addedPrice: 126,
+      performanceDelta: 104,
+      marketCap: 140,
+      per: 88,
+      volume: 118,
+      addedByDisplayName: 120,
+      addedAt: 108
+    },
+    watchlistFilters: {
+      name: '',
+      marketTicker: '',
+      currentPriceMin: '',
+      currentPriceMax: '',
+      addedPriceMin: '',
+      addedPriceMax: '',
+      performanceDeltaMin: '',
+      performanceDeltaMax: '',
+      marketCapMin: '',
+      marketCapMax: '',
+      perMin: '',
+      perMax: '',
+      volumeMin: '',
+      volumeMax: '',
+      addedByDisplayNames: [],
+      addedAt: ''
+    }
   };
 
   const contextBadge = document.getElementById('contextBadge');
@@ -17,7 +60,6 @@
   const tickerInput = document.getElementById('tickerInput');
   const fetchQuoteButton = document.getElementById('fetchQuoteButton');
   const sendTickerButton = document.getElementById('sendTickerButton');
-  const fillTickerButton = document.getElementById('fillTickerButton');
   const searchStatus = document.getElementById('searchStatus');
   const watchlistHint = document.getElementById('watchlistHint');
   const searchWatchState = document.getElementById('searchWatchState');
@@ -58,6 +100,298 @@
       .replace(/'/g, '&#39;');
   }
 
+  function parseMaybeNumber(value) {
+    if (value === null || typeof value === 'undefined') {
+      return null;
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+
+    const raw = String(value).trim();
+    if (!raw || raw === '-') {
+      return null;
+    }
+
+    const normalized = raw.replace(/,/g, '').replace(/[%\s]/g, '');
+    const unitMap = {
+      '万': 1e4,
+      '億': 1e8,
+      '兆': 1e12
+    };
+
+    var multiplier = 1;
+    var unit = normalized.slice(-1);
+    var numericText = normalized;
+    if (unitMap[unit]) {
+      multiplier = unitMap[unit];
+      numericText = normalized.slice(0, -1);
+    }
+
+    const parsed = Number(numericText);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+    return parsed * multiplier;
+  }
+
+  function parseDateValue(value) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return null;
+    }
+
+    const shortMatch = raw.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+    if (shortMatch) {
+      return Date.UTC(2000 + Number(shortMatch[1]), Number(shortMatch[2]) - 1, Number(shortMatch[3]));
+    }
+
+    const longMatch = raw.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+    if (longMatch) {
+      return Date.UTC(Number(longMatch[1]), Number(longMatch[2]) - 1, Number(longMatch[3]));
+    }
+
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function getTickerCode(value) {
+    const raw = String(value || '').trim();
+    if (!raw) {
+      return '-';
+    }
+    return raw.split(':')[0] || raw;
+  }
+
+  const watchlistColumns = [
+    { key: 'name', label: '銘柄', type: 'text' },
+    { key: 'marketTicker', label: 'コード', type: 'text' },
+    { key: 'currentPrice', label: '価格', type: 'number' },
+    { key: 'addedPrice', label: '注目時価格', type: 'number' },
+    { key: 'performanceDelta', label: '騰落率', type: 'number' },
+    { key: 'marketCap', label: '時価総額', type: 'number' },
+    { key: 'per', label: 'PER', type: 'number' },
+    { key: 'volume', label: '出来高', type: 'number' },
+    { key: 'addedByDisplayName', label: '注目者', type: 'text' },
+    { key: 'addedAt', label: '注目日', type: 'date' }
+  ];
+
+  function getWatchlistCellValue(item, key) {
+    if (key === 'name') {
+      return (item.marketFlag ? item.marketFlag + ' ' : '') + (item.name || '-');
+    }
+    if (key === 'marketTicker') {
+      return getTickerCode(item.marketTicker || item.ticker);
+    }
+    return item[key];
+  }
+
+  function compareWatchlistItems(a, b, column) {
+    const aValue = getWatchlistCellValue(a, column.key);
+    const bValue = getWatchlistCellValue(b, column.key);
+
+    if (column.type === 'number') {
+      const aNumber = parseMaybeNumber(aValue);
+      const bNumber = parseMaybeNumber(bValue);
+      if (aNumber === null && bNumber === null) {
+        return 0;
+      }
+      if (aNumber === null) {
+        return 1;
+      }
+      if (bNumber === null) {
+        return -1;
+      }
+      return aNumber - bNumber;
+    }
+
+    if (column.type === 'date') {
+      const aDate = parseDateValue(aValue);
+      const bDate = parseDateValue(bValue);
+      if (aDate === null && bDate === null) {
+        return 0;
+      }
+      if (aDate === null) {
+        return 1;
+      }
+      if (bDate === null) {
+        return -1;
+      }
+      return aDate - bDate;
+    }
+
+    return String(aValue || '').localeCompare(String(bValue || ''), 'ja');
+  }
+
+  function getWatchlistFilteredItems(items) {
+    return items.filter(function(item) {
+      const filters = state.watchlistFilters;
+
+      if (filters.name) {
+        const name = String(getWatchlistCellValue(item, 'name') || '').toUpperCase();
+        if (name.indexOf(filters.name.toUpperCase()) === -1) {
+          return false;
+        }
+      }
+
+      if (filters.marketTicker) {
+        const marketTicker = String(item.marketTicker || '').toUpperCase();
+        if (marketTicker.indexOf(filters.marketTicker.toUpperCase()) === -1) {
+          return false;
+        }
+      }
+
+      if (filters.addedByDisplayNames && filters.addedByDisplayNames.length) {
+        if (filters.addedByDisplayNames.indexOf(String(item.addedByDisplayName || '')) === -1) {
+          return false;
+        }
+      }
+
+      if (filters.addedAt) {
+        const addedAt = String(item.addedAt || '');
+        if (addedAt.indexOf(filters.addedAt) === -1) {
+          return false;
+        }
+      }
+
+      const numericRanges = [
+        ['currentPrice', 'currentPriceMin', 'currentPriceMax'],
+        ['addedPrice', 'addedPriceMin', 'addedPriceMax'],
+        ['performanceDelta', 'performanceDeltaMin', 'performanceDeltaMax'],
+        ['marketCap', 'marketCapMin', 'marketCapMax'],
+        ['per', 'perMin', 'perMax'],
+        ['volume', 'volumeMin', 'volumeMax']
+      ];
+
+      return numericRanges.every(function(range) {
+        const current = parseMaybeNumber(item[range[0]]);
+        const min = parseMaybeNumber(filters[range[1]]);
+        const max = parseMaybeNumber(filters[range[2]]);
+
+        if (min !== null && (current === null || current < min)) {
+          return false;
+        }
+        if (max !== null && (current === null || current > max)) {
+          return false;
+        }
+        return true;
+      });
+    });
+  }
+
+  function getWatchlistSortedItems(items) {
+    const column = watchlistColumns.find(function(entry) {
+      return entry.key === state.watchlistSort.key;
+    }) || watchlistColumns[watchlistColumns.length - 1];
+
+    return items.slice().sort(function(a, b) {
+      const compared = compareWatchlistItems(a, b, column);
+      if (compared !== 0) {
+        return state.watchlistSort.direction === 'asc' ? compared : -compared;
+      }
+      return String(a.ticker || '').localeCompare(String(b.ticker || ''), 'en');
+    });
+  }
+
+  function getWatchlistAddedByOptions(items) {
+    const names = items.map(function(item) {
+      return String(item.addedByDisplayName || '').trim();
+    }).filter(Boolean);
+    return Array.from(new Set(names)).sort(function(a, b) {
+      return a.localeCompare(b, 'ja');
+    });
+  }
+
+  function renderWatchlistFilterInput(column, items) {
+    const filters = state.watchlistFilters;
+
+    if (column.type === 'number') {
+      return [
+        '<div class="filter-pair">',
+        '<input class="table-filter-input" data-filter-key="' + column.key + 'Min" type="text" inputmode="decimal" placeholder="min" value="' + escapeHtml(filters[column.key + 'Min'] || '') + '">',
+        '<input class="table-filter-input" data-filter-key="' + column.key + 'Max" type="text" inputmode="decimal" placeholder="max" value="' + escapeHtml(filters[column.key + 'Max'] || '') + '">',
+        '</div>'
+      ].join('');
+    }
+
+    if (column.key === 'addedByDisplayName') {
+      const options = getWatchlistAddedByOptions(items);
+      return [
+        '<select class="table-filter-select" data-filter-key="addedByDisplayNames" multiple size="' + escapeHtml(String(Math.min(Math.max(options.length, 2), 4))) + '">',
+        options.map(function(name) {
+          const selected = filters.addedByDisplayNames.indexOf(name) >= 0 ? ' selected' : '';
+          return '<option value="' + escapeHtml(name) + '"' + selected + '>' + escapeHtml(name) + '</option>';
+        }).join(''),
+        '</select>'
+      ].join('');
+    }
+
+    return '<input class="table-filter-input" data-filter-key="' + column.key + '" type="text" placeholder="filter" value="' + escapeHtml(filters[column.key] || '') + '">';
+  }
+
+  function renderWatchlistTable(items) {
+    const filteredItems = getWatchlistFilteredItems(items);
+    const sortedItems = getWatchlistSortedItems(filteredItems);
+    const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
+
+    return [
+      '<div class="watchlist-toolbar">',
+      '<div class="watchlist-summary">表示 ' + escapeHtml(String(sortedItems.length)) + ' / 全' + escapeHtml(String(items.length)) + '件</div>',
+      '<button class="ghost-button compact" data-watchlist-reset type="button">条件クリア</button>',
+      '</div>',
+      '<div class="watchlist-table-wrap">',
+      '<table class="watchlist-table">',
+      '<colgroup>',
+      watchlistColumns.map(function(column) {
+        return '<col style="width:' + escapeHtml(String(state.watchlistColumnWidths[column.key] || 120)) + 'px">';
+      }).join(''),
+      '</colgroup>',
+      '<thead>',
+      '<tr>',
+      watchlistColumns.map(function(column) {
+        const isActive = state.watchlistSort.key === column.key;
+        return '<th class="watchlist-head-cell" data-column-key="' + column.key + '">' +
+          '<button class="sort-button' + (isActive ? ' is-active' : '') + '" data-sort-key="' + column.key + '" type="button">' +
+          escapeHtml(column.label) + (isActive ? ' ' + sortMarker : '') + '</button>' +
+          '<span class="column-resizer" data-resize-key="' + column.key + '"></span>' +
+          '</th>';
+      }).join(''),
+      '</tr>',
+      '<tr class="filter-row">',
+      watchlistColumns.map(function(column) {
+        return '<th>' + renderWatchlistFilterInput(column, items) + '</th>';
+      }).join(''),
+      '</tr>',
+      '</thead>',
+      '<tbody>',
+      (sortedItems.length === 0 ? [
+        '<tr>',
+        '<td class="table-empty" colspan="' + escapeHtml(String(watchlistColumns.length)) + '">条件に一致する注目銘柄はありません。</td>',
+        '</tr>'
+      ].join('') : sortedItems.map(function(item) {
+        return [
+          '<tr>',
+          '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
+          '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
+          '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
+          '<td class="mono">' + escapeHtml(item.addedPrice || '-') + '</td>',
+          '<td class="mono delta ' + getDeltaClass(item.performanceDelta || '') + '">' + escapeHtml(item.performanceDelta || '-') + '</td>',
+          '<td class="mono">' + escapeHtml(item.marketCap || '-') + '</td>',
+          '<td class="mono">' + escapeHtml(item.per || '-') + '</td>',
+          '<td class="mono">' + escapeHtml(String(item.volume || '-')) + '</td>',
+          '<td>' + escapeHtml(item.addedByDisplayName || '-') + '</td>',
+          '<td class="mono">' + escapeHtml(item.addedAt || '-') + '</td>',
+          '</tr>'
+        ].join('');
+      }).join('')),
+      '</tbody>',
+      '</table>',
+      '</div>',
+      '<p class="status-text">タップで列ソート、入力で絞り込み、見出し右端のドラッグで列幅調整できます。</p>'
+    ].join('');
+  }
+
   function renderAvatar(pictureUrl, displayName) {
     if (pictureUrl) {
       return '<div class="avatar"><img src="' + escapeHtml(pictureUrl) + '" alt=""></div>';
@@ -66,6 +400,9 @@
   }
 
   function setActiveView(view, options) {
+    if (state.activeView === view && (!options || !options.forceReload)) {
+      return;
+    }
     state.activeView = view;
     tabs.forEach((tab) => {
       tab.classList.toggle('is-active', tab.dataset.view === view);
@@ -138,22 +475,25 @@
     }
 
     tickerInput.value = command;
-    searchStatus.textContent = command + ' を手動送信用にセットしました。';
-  }
-
-  function fillTickerCommand() {
-    const ticker = normalizeTickerInput();
-    if (!ticker) {
-      searchStatus.textContent = '銘柄コードを入力してください。';
-      return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(command);
+        searchStatus.textContent = 'LIFF外のため送信できません。' + command + ' をコピーして入力欄にも入れました。';
+        return;
+      } catch (error) {
+        // Continue to the plain fallback.
+      }
     }
-    tickerInput.value = '#' + ticker;
-    searchStatus.textContent = '送信用に #' + ticker + ' をセットしました。';
+    searchStatus.textContent = 'LIFF外のため送信できません。' + command + ' を入力欄に入れました。';
   }
 
   async function initializeLiff() {
     if (!window.liff || !state.liffId) {
-      setBadge(contextBadge, state.liffId ? 'LIFF SDKなし' : 'LIFF ID未設定');
+      state.userId = config.debugUserId || '';
+      setBadge(contextBadge, state.liffId ? 'ローカルデバッグ' : 'LIFF ID未設定');
+      setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
+      setBadge(userBadge, 'user: ' + (state.userId || '-'));
+      searchStatus.textContent = 'ローカル表示中です。debugGroupId / debugUserId でデータ取得し、送信はコピーへフォールバックします。';
       return;
     }
 
@@ -167,9 +507,43 @@
       setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
       setBadge(userBadge, 'user: ' + (state.userId || '-'));
     } catch (error) {
+      state.userId = config.debugUserId || '';
       setBadge(contextBadge, 'LIFF初期化失敗');
-      searchStatus.textContent = 'LIFF 初期化に失敗しました。docs/liff/config.js の liffId / apiBaseUrl を確認してください。';
+      setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
+      setBadge(userBadge, 'user: ' + (state.userId || '-'));
+      searchStatus.textContent = 'LIFF初期化に失敗したため、debugGroupId / debugUserId を使うデバッグ表示へ切り替えました。';
     }
+  }
+
+  function setLoadingState(el, message, isBusy) {
+    if (!el) {
+      return;
+    }
+    el.textContent = message;
+    el.classList.toggle('is-idle', !isBusy);
+    el.classList.toggle('loading-state', !!isBusy);
+  }
+
+  function getViewPayload(view) {
+    return view === 'watchlist' ? state.watchlistPayload : state.performancePayload;
+  }
+
+  function setViewPayload(view, payload) {
+    if (view === 'watchlist') {
+      state.watchlistPayload = payload;
+      return;
+    }
+    state.performancePayload = payload;
+  }
+
+  function renderViewFromPayload(view, payload) {
+    if (view === 'watchlist') {
+      renderWatchlist(payload);
+      watchlistHint.textContent = '注目一覧をローカル保持しています。更新時のみ再取得します。';
+      updateSearchWatchState();
+      return;
+    }
+    renderPerformance(payload);
   }
 
   async function fetchJson(view) {
@@ -230,8 +604,8 @@
       '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(payload.performanceDelta || '') + '">' + escapeHtml(payload.performanceDelta || '-') + '</h4><p>注目時比</p></div>',
       '</div>',
       '<div class="record-row">',
-      '<div class="metric-block"><strong>時価総額</strong><p>' + escapeHtml(payload.marketCap || '-') + '</p></div>',
-      '<div class="metric-block"><strong>PER / 出来高</strong><p>' + escapeHtml(payload.per || '-') + ' / ' + escapeHtml(String(payload.volume || '-')) + '</p></div>',
+      '<div class="metric-block"><p>時価総額</p><h4 class="mono">' + escapeHtml(payload.marketCap || '-') + '</h4></div>',
+      '<div class="metric-block"><p>PER / 出来高</p><h4 class="mono">' + escapeHtml(payload.per || '-') + ' / ' + escapeHtml(String(payload.volume || '-')) + '</h4></div>',
       '</div>',
       '<div class="record-row"><span>' + watchStateText + '</span><span>注目時 ' + escapeHtml(payload.addedPrice || '-') + '</span></div>',
       '</article>'
@@ -241,50 +615,34 @@
   async function fetchQuotePreview() {
     const ticker = normalizeTickerInput();
     if (!ticker) {
-      searchStatus.textContent = '銘柄コードを入力してください。';
+      setLoadingState(searchStatus, '銘柄コードを入力してください。', false);
       return;
     }
 
-    searchStatus.textContent = ticker + ' の株情報を取得中です。';
+    setLoadingState(searchStatus, ticker + ' の株情報を取得中です。', true);
     quotePreview.innerHTML = '';
     try {
       const data = await fetchJsonWithParams('quote', { ticker: ticker });
       renderQuotePreview(data);
-      searchStatus.textContent = ticker + ' の株情報を更新しました。';
+      setLoadingState(searchStatus, ticker + ' の株情報を更新しました。', false);
     } catch (error) {
-      searchStatus.textContent = '株情報の取得に失敗しました: ' + error.message;
+      setLoadingState(searchStatus, '株情報の取得に失敗しました: ' + error.message, false);
     }
   }
 
   function renderWatchlist(payload) {
     const items = (payload && payload.items) || [];
+    const existingWrap = watchlistContent.querySelector('.watchlist-table-wrap');
+    const previousScrollLeft = existingWrap ? existingWrap.scrollLeft : 0;
     if (items.length === 0) {
       watchlistContent.innerHTML = '<p class="empty-state">注目銘柄はまだありません。</p>';
       return;
     }
-
-    watchlistContent.innerHTML = items.map(function(item) {
-      return [
-        '<article class="data-card">',
-        '<div class="card-head">',
-        '<div class="title-block">',
-        '<h3>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</h3>',
-        '<p>' + escapeHtml(item.marketTicker || '-') + '</p>',
-        '</div>',
-        '<a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(item.ticker) + '</a>',
-        '</div>',
-        '<div class="stat-row">',
-        '<div class="metric-block"><h4 class="mono">' + escapeHtml(item.currentPrice || '-') + '</h4><p>注目時 ' + escapeHtml(item.addedPrice || '-') + '</p></div>',
-        '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(item.performanceDelta) + '">' + escapeHtml(item.performanceDelta || '-') + '</h4><p>パフォーマンス</p></div>',
-        '</div>',
-        '<div class="record-row">',
-        '<div class="metric-block"><strong>時価総額</strong><p>' + escapeHtml(item.marketCap || '-') + ' / 注目時 ' + escapeHtml(item.addedMarketCap || '-') + '</p></div>',
-        '<div class="metric-block"><strong>PER / 出来高</strong><p>' + escapeHtml(item.per || '-') + ' / ' + escapeHtml(String(item.volume || '-')) + '</p></div>',
-        '</div>',
-        '<div class="record-row"><span>' + escapeHtml('注目 ' + (item.addedByDisplayName || '-') + ' / ' + (item.addedAt || '-')) + '</span><span>' + escapeHtml(item.source || '') + '</span></div>',
-        '</article>'
-      ].join('');
-    }).join('');
+    watchlistContent.innerHTML = renderWatchlistTable(items);
+    const nextWrap = watchlistContent.querySelector('.watchlist-table-wrap');
+    if (nextWrap) {
+      nextWrap.scrollLeft = previousScrollLeft;
+    }
   }
 
   function renderRankingRows(ranking) {
@@ -358,26 +716,49 @@
     ].join('');
   }
 
-  async function loadView(view) {
+  async function loadView(view, options) {
+    const forceRefresh = !!(options && options.forceRefresh);
     const loadingEl = view === 'watchlist' ? watchlistLoading : performanceLoading;
     const contentEl = view === 'watchlist' ? watchlistContent : performanceContent;
-    loadingEl.textContent = '読み込み中...';
-    contentEl.innerHTML = '';
+    const cachedPayload = getViewPayload(view);
 
-    try {
-      const data = await fetchJson(view);
-      if (view === 'watchlist') {
-        state.watchlistPayload = data;
-        renderWatchlist(data);
-        watchlistHint.textContent = '注目一覧を読み込み済みです。検索時に利用中かどうかも表示します。';
-        updateSearchWatchState();
-      } else {
-        renderPerformance(data);
-      }
-      loadingEl.textContent = '更新済み: ' + new Date().toLocaleTimeString('ja-JP');
-    } catch (error) {
-      loadingEl.textContent = '取得失敗: ' + error.message;
+    if (!forceRefresh && cachedPayload) {
+      renderViewFromPayload(view, cachedPayload);
+      setLoadingState(loadingEl, 'ローカル表示中: ' + new Date(state.cacheFetchedAt[view]).toLocaleTimeString('ja-JP'), false);
+      return;
     }
+
+    if (state.inFlightLoads[view] && !forceRefresh) {
+      setLoadingState(loadingEl, '読み込み中...', true);
+      return state.inFlightLoads[view];
+    }
+
+    setLoadingState(loadingEl, forceRefresh ? '更新中...' : '読み込み中...', true);
+    if (!cachedPayload) {
+      contentEl.innerHTML = '';
+    }
+
+    const request = (async function() {
+      try {
+        const data = await fetchJsonWithParams(view, forceRefresh ? { refresh: '1' } : {});
+        setViewPayload(view, data);
+        state.cacheFetchedAt[view] = Date.now();
+        renderViewFromPayload(view, data);
+        setLoadingState(loadingEl, '更新済み: ' + new Date().toLocaleTimeString('ja-JP'), false);
+      } catch (error) {
+        if (cachedPayload) {
+          renderViewFromPayload(view, cachedPayload);
+          setLoadingState(loadingEl, '更新失敗: ローカル表示を継続', false);
+          return;
+        }
+        setLoadingState(loadingEl, '取得失敗: ' + error.message, false);
+      } finally {
+        state.inFlightLoads[view] = null;
+      }
+    })();
+
+    state.inFlightLoads[view] = request;
+    return request;
   }
 
   tabs.forEach(function(tab) {
@@ -388,14 +769,86 @@
 
   reloadButtons.forEach(function(button) {
     button.addEventListener('click', function() {
-      loadView(button.dataset.reloadView);
+      loadView(button.dataset.reloadView, { forceRefresh: true });
     });
   });
 
   tickerInput.addEventListener('input', updateSearchWatchState);
   fetchQuoteButton.addEventListener('click', fetchQuotePreview);
   sendTickerButton.addEventListener('click', sendTickerCommand);
-  fillTickerButton.addEventListener('click', fillTickerCommand);
+  watchlistContent.addEventListener('click', function(event) {
+    const sortButton = event.target.closest('[data-sort-key]');
+    if (sortButton) {
+      const sortKey = sortButton.dataset.sortKey;
+      if (state.watchlistSort.key === sortKey) {
+        state.watchlistSort.direction = state.watchlistSort.direction === 'asc' ? 'desc' : 'asc';
+      } else {
+        state.watchlistSort.key = sortKey;
+        state.watchlistSort.direction = 'asc';
+      }
+      if (state.watchlistPayload) {
+        renderWatchlist(state.watchlistPayload);
+      }
+      return;
+    }
+
+    const resetButton = event.target.closest('[data-watchlist-reset]');
+    if (resetButton) {
+      Object.keys(state.watchlistFilters).forEach(function(key) {
+        state.watchlistFilters[key] = '';
+      });
+      if (state.watchlistPayload) {
+        renderWatchlist(state.watchlistPayload);
+      }
+    }
+  });
+  watchlistContent.addEventListener('input', function(event) {
+    const filterInput = event.target.closest('[data-filter-key]');
+    if (!filterInput) {
+      return;
+    }
+    state.watchlistFilters[filterInput.dataset.filterKey] = filterInput.value;
+    if (state.watchlistPayload) {
+      renderWatchlist(state.watchlistPayload);
+    }
+  });
+  watchlistContent.addEventListener('change', function(event) {
+    const filterSelect = event.target.closest('[data-filter-key="addedByDisplayNames"]');
+    if (!filterSelect) {
+      return;
+    }
+    state.watchlistFilters.addedByDisplayNames = Array.from(filterSelect.selectedOptions).map(function(option) {
+      return option.value;
+    });
+    if (state.watchlistPayload) {
+      renderWatchlist(state.watchlistPayload);
+    }
+  });
+  watchlistContent.addEventListener('mousedown', function(event) {
+    const resizer = event.target.closest('[data-resize-key]');
+    if (!resizer) {
+      return;
+    }
+    event.preventDefault();
+    const key = resizer.dataset.resizeKey;
+    const startX = event.clientX;
+    const startWidth = Number(state.watchlistColumnWidths[key] || 120);
+
+    function onMove(moveEvent) {
+      state.watchlistColumnWidths[key] = Math.max(72, startWidth + (moveEvent.clientX - startX));
+      if (state.watchlistPayload) {
+        renderWatchlist(state.watchlistPayload);
+      }
+    }
+
+    function onUp() {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
 
   initializeLiff().finally(function() {
     setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
