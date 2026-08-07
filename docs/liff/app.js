@@ -69,6 +69,11 @@
   const watchlistContent = document.getElementById('watchlistContent');
   const performanceLoading = document.getElementById('performanceLoading');
   const performanceContent = document.getElementById('performanceContent');
+  const quoteModal = document.getElementById('quoteModal');
+  const quoteModalTitle = document.getElementById('quoteModalTitle');
+  const quoteModalStatus = document.getElementById('quoteModalStatus');
+  const quoteModalContent = document.getElementById('quoteModalContent');
+  const quoteModalClose = document.getElementById('quoteModalClose');
   const tabs = Array.from(document.querySelectorAll('.tab'));
   const panels = Array.from(document.querySelectorAll('.panel'));
   const reloadButtons = Array.from(document.querySelectorAll('[data-reload-view]'));
@@ -185,6 +190,10 @@
       return '-';
     }
     return raw.split(':')[0] || raw;
+  }
+
+  function normalizeTickerText(value) {
+    return String(value || '').trim().toUpperCase().replace(/^#/, '');
   }
 
   const watchlistColumns = [
@@ -397,7 +406,7 @@
         '</tr>'
       ].join('') : sortedItems.map(function(item) {
         return [
-          '<tr>',
+          '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '">',
           '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
           '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
           '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
@@ -447,7 +456,7 @@
   }
 
   function normalizeTickerInput() {
-    return String(tickerInput.value || '').trim().toUpperCase().replace(/^#/, '');
+    return normalizeTickerText(tickerInput.value || '');
   }
 
   function findWatchItemByTicker(ticker) {
@@ -611,9 +620,10 @@
     return data.data;
   }
 
-  function renderQuotePreview(payload) {
+  function renderQuotePreview(payload, targetEl) {
+    const container = targetEl || quotePreview;
     if (!payload) {
-      quotePreview.innerHTML = '';
+      container.innerHTML = '';
       return;
     }
 
@@ -621,7 +631,7 @@
       ? '注目中: ' + escapeHtml(payload.watchedBy || '-') + ' / ' + escapeHtml(payload.watchedAt || '-')
       : '未注目';
 
-    quotePreview.innerHTML = [
+    container.innerHTML = [
       '<article class="data-card">',
       '<div class="card-head">',
       '<div class="title-block">',
@@ -643,6 +653,57 @@
     ].join('');
   }
 
+  function openQuoteModal(title) {
+    if (!quoteModal) {
+      return;
+    }
+    quoteModal.classList.remove('is-hidden');
+    quoteModal.setAttribute('aria-hidden', 'false');
+    if (quoteModalTitle) {
+      quoteModalTitle.textContent = title || '銘柄情報';
+    }
+  }
+
+  function closeQuoteModal() {
+    if (!quoteModal) {
+      return;
+    }
+    quoteModal.classList.add('is-hidden');
+    quoteModal.setAttribute('aria-hidden', 'true');
+  }
+
+  async function fetchQuoteByTicker(ticker, options) {
+    const normalizedTicker = normalizeTickerText(ticker);
+    const settings = options || {};
+    if (!normalizedTicker) {
+      return null;
+    }
+
+    if (settings.statusEl) {
+      setLoadingState(settings.statusEl, normalizedTicker + ' の株情報を取得中です。', true);
+    }
+    if (settings.targetEl) {
+      settings.targetEl.innerHTML = '';
+    }
+
+    try {
+      const data = await fetchJsonWithParams('quote', { ticker: normalizedTicker });
+      renderQuotePreview(data, settings.targetEl);
+      if (settings.titleEl) {
+        settings.titleEl.textContent = (data.marketFlag ? data.marketFlag + ' ' : '') + (data.name || normalizedTicker);
+      }
+      if (settings.statusEl) {
+        setLoadingState(settings.statusEl, normalizedTicker + ' の株情報を更新しました。', false);
+      }
+      return data;
+    } catch (error) {
+      if (settings.statusEl) {
+        setLoadingState(settings.statusEl, '株情報の取得に失敗しました: ' + error.message, false);
+      }
+      return null;
+    }
+  }
+
   async function fetchQuotePreview() {
     const ticker = normalizeTickerInput();
     if (!ticker) {
@@ -650,15 +711,10 @@
       return;
     }
 
-    setLoadingState(searchStatus, ticker + ' の株情報を取得中です。', true);
-    quotePreview.innerHTML = '';
-    try {
-      const data = await fetchJsonWithParams('quote', { ticker: ticker });
-      renderQuotePreview(data);
-      setLoadingState(searchStatus, ticker + ' の株情報を更新しました。', false);
-    } catch (error) {
-      setLoadingState(searchStatus, '株情報の取得に失敗しました: ' + error.message, false);
-    }
+    await fetchQuoteByTicker(ticker, {
+      statusEl: searchStatus,
+      targetEl: quotePreview
+    });
   }
 
   function renderWatchlist(payload) {
@@ -808,6 +864,19 @@
   fetchQuoteButton.addEventListener('click', fetchQuotePreview);
   sendTickerButton.addEventListener('click', sendTickerCommand);
   watchlistContent.addEventListener('click', function(event) {
+    if (!event.target.closest('a, button, input, select') && !event.target.closest('.column-resizer')) {
+      const tickerRow = event.target.closest('tr[data-ticker]');
+      if (tickerRow) {
+        openQuoteModal(tickerRow.dataset.name || '銘柄情報');
+        fetchQuoteByTicker(tickerRow.dataset.ticker, {
+          statusEl: quoteModalStatus,
+          targetEl: quoteModalContent,
+          titleEl: quoteModalTitle
+        });
+        return;
+      }
+    }
+
     const sortButton = event.target.closest('[data-sort-key]');
     if (sortButton) {
       const sortKey = sortButton.dataset.sortKey;
@@ -878,6 +947,21 @@
 
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+  });
+  if (quoteModalClose) {
+    quoteModalClose.addEventListener('click', closeQuoteModal);
+  }
+  if (quoteModal) {
+    quoteModal.addEventListener('click', function(event) {
+      if (event.target === quoteModal) {
+        closeQuoteModal();
+      }
+    });
+  }
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+      closeQuoteModal();
+    }
   });
 
   initializeLiff().finally(function() {

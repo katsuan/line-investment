@@ -78,6 +78,17 @@
       </main>
     </div>
 
+    <div id="quoteModal" class="modal-overlay is-hidden" aria-hidden="true">
+      <div class="modal-card">
+        <div class="section-head">
+          <h2 id="quoteModalTitle">銘柄情報</h2>
+          <button id="quoteModalClose" class="ghost-button compact" type="button">閉じる</button>
+        </div>
+        <p id="quoteModalStatus" class="status-text">読み込み待ちです。</p>
+        <div id="quoteModalContent" class="card-list"></div>
+      </div>
+    </div>
+
     <script src="./app.js"></script>
   </body>
 </html>

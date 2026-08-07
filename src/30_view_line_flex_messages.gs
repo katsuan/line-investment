@@ -389,11 +389,6 @@ function buildUsageGuideFlexMessage_(options) {
       quickActionText: '#注目一覧',
     },
     {
-      command: '#注目実績',
-      detail: '誰が何銘柄ピックしたかを見る',
-      quickActionText: '#注目実績',
-    },
-    {
       command: '#解除 7203',
       detail: '自分の注目銘柄を一覧から外す',
     },
