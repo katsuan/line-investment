@@ -82,7 +82,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 このリポジトリでは、`docs/` を GitHub Actions 経由で GitHub Pages へデプロイします。
 
-- workflow: [deploy-github-pages.yml](/Users/katsu/GitHub/T-FONTE投資部/.github/workflows/deploy-github-pages.yml)
+- workflow: [deploy-github-pages.yml](.github/workflows/deploy-github-pages.yml)
 - 対象ブランチ: `main`
 - 配布対象: `docs/`
 

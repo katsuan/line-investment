@@ -698,8 +698,9 @@
       return data;
     } catch (error) {
       if (settings.statusEl) {
-        setLoadingState(settings.statusEl, '株情報の取得に失敗しました: ' + error.message, false);
+        setLoadingState(settings.statusEl, '株情報の取得に失敗しました。時間をおいてもう一度お試しください。', false);
       }
+      console.error(error);
       return null;
     }
   }
@@ -833,12 +834,13 @@
         renderViewFromPayload(view, data);
         setLoadingState(loadingEl, '更新済み: ' + new Date().toLocaleTimeString('ja-JP'), false);
       } catch (error) {
+        console.error(error);
         if (cachedPayload) {
           renderViewFromPayload(view, cachedPayload);
           setLoadingState(loadingEl, '更新失敗: ローカル表示を継続', false);
           return;
         }
-        setLoadingState(loadingEl, '取得失敗: ' + error.message, false);
+        setLoadingState(loadingEl, '取得に失敗しました。時間をおいてもう一度お試しください。', false);
       } finally {
         state.inFlightLoads[view] = null;
       }
