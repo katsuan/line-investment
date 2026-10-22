@@ -47,7 +47,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 ## 初回セットアップ
 
-1. `clasp push` を実行する
+1. `.clasp.json.example` を `.clasp.json` に複製して `scriptId` を入れ、`clasp push` を実行する（`.clasp.json` は git に入れない）
 2. Apps Script エディタで `setupInvestmentGroupBot` を1回実行する
 3. `GROUPS`, `MEMBERS`, `RULES`, `EVENT_LOG` シートが作成されたことを確認する
 4. `RULES` に Version 1 が投入されていることを確認する
