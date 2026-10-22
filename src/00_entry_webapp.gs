@@ -1,3 +1,4 @@
+// qcheck-ok: G3 合言葉と本人の確かめは 01_router（isWebhookKeyAccepted_・resolveLiffRequestUserId_）
 function doPost(e) {
   return runLineGroupBotPost(e);
 }

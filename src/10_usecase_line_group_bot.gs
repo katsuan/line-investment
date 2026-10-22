@@ -98,7 +98,8 @@ function handlePostback_(event) {
     return;
   }
 
-  const ruleVersion = Number(params.ruleVersion || DEFAULT_RULE_VERSION_);
+  const requestedRuleVersion = Math.floor(Number(params.ruleVersion || DEFAULT_RULE_VERSION_));
+  const ruleVersion = requestedRuleVersion > 0 && requestedRuleVersion < 10000 ? requestedRuleVersion : DEFAULT_RULE_VERSION_;
 
   let displayName = '';
   try {
@@ -212,7 +213,7 @@ function handleMessage_(event) {
         'ルールをまだ確認していない人',
         '',
         members.map(function(member) {
-          return '・' + (member.displayName || member.userId);
+          return '・' + (member.displayName || '（名前がわからない人）');
         }).join('\n'),
         '',
         'いまのルール：Version ' + rule.version,
@@ -228,7 +229,7 @@ function handleMessage_(event) {
 
   if (text === '#Bot設定') {
     const group = getGroupRecord_(groupId);
-    sendReplyMessage_(event.replyToken, [buildBotSettingsFlexMessage_(group)], groupId);
+    sendReplyMessage_(event.replyToken, [buildBotSettingsFlexMessage_(group, { showAccessCounts: isAdminUser_(userId) })], groupId);
     logEventResult_(event, 'command_bot_settings', 'success', 'settings flex sent', '');
     return;
   }
@@ -545,7 +546,7 @@ function buildWatchPerformanceStats_(groupId, options) {
     if (!statsByUser[key]) {
       statsByUser[key] = {
         userId: record.addedByUserId || '',
-        displayName: record.addedByDisplayName || record.addedByUserId || '不明',
+        displayName: record.addedByDisplayName || '不明',
         pictureUrl: '',
         pickCount: 0,
         deltaSum: 0,
@@ -675,7 +676,7 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     return null;
   }
 
-  let displayName = fallbackDisplayName || filteredRecords[0].addedByDisplayName || filteredRecords[0].addedByUserId || '不明';
+  let displayName = fallbackDisplayName || filteredRecords[0].addedByDisplayName || '不明';
   let pictureUrl = '';
   if (userId) {
     try {
@@ -790,7 +791,7 @@ function buildLiffWatchlistPayload_(groupId, options) {
         per: quote && quote.per ? quote.per : '',
         volume: quote && quote.volume ? quote.volume : '',
         addedAt: formatDateDisplayOnly_(record.addedAt),
-        addedByDisplayName: record.addedByDisplayName || record.addedByUserId || '',
+        addedByDisplayName: record.addedByDisplayName || '',
         kabutanUrl: buildKabutanUrl_(record.ticker),
         source: 'Google Finance',
       };
@@ -817,7 +818,6 @@ function buildLiffPerformancePayload_(groupId, options) {
     }
     return {
       title: spotlight.title,
-      userId: spotlight.userId,
       displayName: spotlight.displayName,
       pictureUrl: spotlight.pictureUrl,
       pickCount: spotlight.pickCount,
@@ -845,7 +845,6 @@ function buildLiffPerformancePayload_(groupId, options) {
     ranking: (stats.rows || []).map(function(row) {
       return {
         rank: row.rank,
-        userId: row.userId,
         displayName: row.displayName,
         pictureUrl: row.pictureUrl,
         pickCount: row.pickCount,
@@ -890,7 +889,7 @@ function buildLiffQuotePayload_(groupId, ticker, options) {
     kabutanUrl: buildKabutanUrl_(normalizedTicker),
     source: 'Google Finance',
     isWatched: !!activeRecord,
-    watchedBy: activeRecord ? (activeRecord.addedByDisplayName || activeRecord.addedByUserId || '') : '',
+    watchedBy: activeRecord ? (activeRecord.addedByDisplayName || '') : '',
     watchedAt: activeRecord ? formatDateDisplayOnly_(activeRecord.addedAt) : '',
     addedPrice: activeRecord ? (activeRecord.addedPrice || '') : '',
     performanceDelta: activeRecord

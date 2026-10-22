@@ -6,13 +6,17 @@ Google Apps Script と LINE Messaging API で動かす、LINE投資グループ�
 
 - `src/00_entry_webapp.gs`: `doGet` / `doPost` と親委譲用の公開入口
 - `src/01_router_webhook_request.gs`: Webhook入力解釈とイベントルーティング
+- `src/02_auth_request_guard.gs`: だれが呼んでいるかの確かめ（Webhook の合言葉・画面の本人確認）
 - `src/10_usecase_line_group_bot.gs`: `join` / `memberJoined` / `postback` / コマンド処理
 - `src/20_infra_line_messaging_api.gs`: LINE Messaging API 呼び出し
 - `src/21_infra_spreadsheet_repository.gs`: スプレッドシート入出力
 - `src/30_view_line_flex_messages.gs`: Flex Message生成
 - `src/90_setup_investment_group_bot.gs`: 初回セットアップ
 - `src/98_shared_utilities.gs`: 共通ユーティリティ
+- `src/93_self_check_config.gs`: 使う前の確かめ（`qCheckAll`）で見ること
 - `src/99_config.gs`: Script Properties と定数
+- `src/99_selfcheck.gs`: 使う前の確かめと `safeCell()`（q-oqrn の `tools/qtest/selfcheck.gs` の写し）
+- `test/`: テスト（`node --test test/`）
 - `src/appsscript.json`: GASマニフェスト
 - `docs/liff/`: GitHub Pages で配信する LIFF フロントの静的ファイル
 
@@ -40,7 +44,10 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 - `SPREADSHEET_ID`: 利用するスプレッドシートID
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API のチャネルアクセストークン
-- `ADMIN_USER_IDS`: 任意。将来の管理者制限用にカンマ区切りで保持可能
+- `WEBHOOK_KEY`: Webhook の合言葉。長くて推測できない文字にし、Webhook の URL の末尾に `?key=<同じ値>` を付ける
+- `ADMIN_USER_IDS`: 管理者の LINE ユーザー ID（カンマ区切り）。`#グループ許可`・`#解除`（全部）・ほかの人の注目を外す、ができる
+- `ALLOWED_GROUP_IDS`: 使ってよいグループ（カンマ区切り）。管理者がグループで `#グループ許可` を送ると足される
+- `LIFF_CHANNEL_ID`: 任意。画面（LIFF）のチャネル ID。既定は `config.js` の LIFF ID の「-」より前
 - `STOCK_EXCHANGE_SUFFIX`: 任意。既定値は `TYO`
 - `LIFF_APP_BASE_URL`: 任意。`#注目一覧`・`#注目実績`・カードのボタンで開く画面の URL
 - `MARKET_DATA_CACHE_MINUTES`: 任意。相場情報キャッシュ分数。既定値は `5`
@@ -52,13 +59,27 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 3. `GROUPS`, `MEMBERS`, `RULES`, `EVENT_LOG` シートが作成されたことを確認する
 4. `RULES` に Version 1 が投入されていることを確認する
 
+## 使う前の確かめ
+
+`clasp push` のあとや、設定を変えたあとは、GAS エディタで `qCheckAll` を実行し、実行ログを見ます（✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す）。
+Script Properties・シートの見出し・LINE の鍵と Webhook（合言葉つきか）・主なカードが LINE に受けつけられる形か、を確かめます。何も書きこまず、LINE にも送りません。
+見る項目は `src/93_self_check_config.gs` の `Q_SELF_CHECK` です。
+
+## テスト
+
+本番のシート・LINE に触らずに確かめます。となりに [q-oqrn](https://github.com/katsuan/q-oqrn) を置いて（`../q-oqrn/tools/qtest` を使う）:
+
+```bash
+node --test test/
+```
+
 ## Webアプリ公開
 
 1. Apps Script で `デプロイ > 新しいデプロイ`
 2. 種別を `ウェブアプリ` にする
 3. 実行ユーザーを `自分`
 4. アクセスできるユーザーを `全員`
-5. 発行された URL を LINE Developers の Webhook URL に設定する
+5. 発行された URL の末尾に `?key=<WEBHOOK_KEY の値>` を付けて、LINE Developers の Webhook URL に設定する
 
 親 GAS から処理を委譲したい場合は、`doPost` / `doGet` ではなく次を呼び出します。
 
@@ -126,19 +147,19 @@ window.APP_CONFIG = {
 };
 ```
 
-debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.example.js` を `docs/liff/config.local.js` として複製し、ローカルだけで保持します。
+debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.example.js` を `docs/liff/config.local.js` として複製し、ローカルだけで保持します。`config.local.js` と URL の `?apiBaseUrl=`・`?liffId=` は、手元（localhost）で開いたときだけ使われます。
 
 ### LIFF API
 
-デバッグ時の LIFF フロントは、GAS の `doGet` に対して次の形式で問い合わせます。
+LIFF フロントは、GAS の `doGet` に対して次の形式で問い合わせます。
 
 - `action=liff_data`
 - `groupId=<LINE groupId>`
-- `view=watchlist | performance`
-- `userId=<LIFF から得た userId>`
+- `view=watchlist | performance | quote`
+- `idToken=<liff.getIDToken()>`（取れないときは `accessToken=<liff.getAccessToken()>`）
 
-現在の API は `groupId × userId` の既存認可ロジックを流用します。  
-本番化前には、LIFF token の検証追加を再評価してください。
+GAS は、この印を LINE に確かめて本人を決めます。見られるのは、そのグループにいて、ルールを確認した人（と管理者）だけです。
+ID トークンを使うには、LIFF アプリの Scope で `openid` をオンにしておきます（オフのときはアクセストークンで確かめます）。
 
 ## 動作確認
 
@@ -153,7 +174,8 @@ debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.e
 
 - 初期実装は `group` のみ対応です
 - 通常会話には反応しません
-- LINE API エラーやイベント例外は `EVENT_LOG` に保存します
+- LINE API エラーやイベント例外は `EVENT_LOG` に保存します（LINE のユーザー ID は、そのままではなく短いハッシュで残します）
+- グループの外（1対1のトークなど）には返事をしません
 - ふつうの会話（`#` で始まらないもの）には返事をせず、`EVENT_LOG` にも書きません
 - カードを LINE が受けつけなかったときは、文字だけで返事をして、原因を Script Properties の `LAST_LINE_ERRORS`（最後の5件）と `EVENT_LOG` に残します
 - `replyToken` は各イベントで1回のみ利用しています

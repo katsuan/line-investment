@@ -120,12 +120,15 @@ function addScriptPropertyListValue_(key, value) {
     return getScriptPropertyList_(key);
   }
 
-  refreshScriptProperty_(key); // 書く直前は、ほかの呼び出しが足した分も読む
-  const values = getScriptPropertyList_(key);
-  if (values.indexOf(text) === -1) {
-    values.push(text);
-  }
-  return setScriptPropertyList_(key, values);
+  // 同時に何人も押したとき、ほかの人の分を消さないよう、ロックの中で読みなおしてから書く（G7）
+  return withScriptLock_(function() {
+    refreshScriptProperty_(key);
+    const values = getScriptPropertyList_(key);
+    if (values.indexOf(text) === -1) {
+      values.push(text);
+    }
+    return setScriptPropertyList_(key, values);
+  });
 }
 
 // Script Properties は、1回の呼び出しの中で1回だけまとめて読む（H9）

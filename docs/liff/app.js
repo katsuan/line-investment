@@ -1,17 +1,19 @@
 (function() {
   const query = new URLSearchParams(window.location.search);
   const config = window.APP_CONFIG || {};
+  // 手元（localhost）で確かめるときだけ、URL で問い合わせ先を変えられる。公開した画面では、決めた所にだけ問い合わせる
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]'].indexOf(window.location.hostname) >= 0;
   const state = {
     activeView: ['search', 'watchlist', 'performance'].indexOf(query.get('view')) >= 0 ? query.get('view') : 'search',
     groupId: query.get('groupId') || config.debugGroupId || '',
     userId: '',
-    apiBaseUrl: query.get('apiBaseUrl') || config.apiBaseUrl || '',
-    liffId: query.get('liffId') || config.liffId || '',
+    apiBaseUrl: (isLocalHost && query.get('apiBaseUrl')) || config.apiBaseUrl || '',
+    liffId: (isLocalHost && query.get('liffId')) || config.liffId || '',
     initialized: false,
     // その場で送れるか（LINE アプリの中で、トークから開いたとき）
     canSend: false,
     // 手元で確かめるとき（?debug=1 か config.local.js の debugGroupId）だけ、group・user の目印を出す
-    isDebug: query.get('debug') === '1' || !!config.debugGroupId,
+    isDebug: query.get('debug') === '1' || (isLocalHost && !!config.debugGroupId),
     watchlistPayload: null,
     performancePayload: null,
     // この画面を開いてから、ネットから取りなおしたか（端末に残した中身は、取りなおすまで仮のもの）
@@ -471,7 +473,7 @@
       ].join('') : sortedItems.map(function(item) {
         return [
           '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '" tabindex="0">',
-          '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
+          '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noopener noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
           '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
           '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
           '<td class="mono">' + escapeHtml(item.addedPrice || '-') + '</td>',
@@ -681,8 +683,25 @@
     outsideNote.hidden = false;
   }
 
+  // LINE に確かめてもらう本人の印（GAS がこれで本人を決める。端末には残さない）
+  function getLineProof() {
+    if (!state.initialized || !window.liff) {
+      return null;
+    }
+    try {
+      const idToken = window.liff.getIDToken ? window.liff.getIDToken() : '';
+      if (idToken) {
+        return { idToken: idToken };
+      }
+      const accessToken = window.liff.getAccessToken ? window.liff.getAccessToken() : '';
+      return accessToken ? { accessToken: accessToken } : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
   function useLocalDebugUser(label) {
-    if (!config.debugUserId) {
+    if (!isLocalHost || !config.debugUserId) {
       return false;
     }
     state.userId = config.debugUserId;
@@ -813,7 +832,7 @@
   }
 
   function canFetch() {
-    return !!(state.apiBaseUrl && state.groupId && state.userId);
+    return !!(state.apiBaseUrl && state.groupId && (getLineProof() || state.userId));
   }
 
   function makeLoadError(kind) {
@@ -824,6 +843,9 @@
 
   // 失敗のときに出す言葉（仕組みの言葉やエラーの中身は出さない。E2）
   function describeLoadError(error, hasCache) {
+    if (error && error.kind === 'relogin') {
+      return 'LINE とのつながりが切れました。LINE アプリで開きなおしてね。';
+    }
     if (error && error.kind === 'denied') {
       return '見られるのは、ルールを確認した人だけです。トークのルールのカードで「確認しました」を押してね。';
     }
@@ -842,7 +864,10 @@
     url.searchParams.set('action', 'liff_data');
     url.searchParams.set('groupId', state.groupId);
     url.searchParams.set('view', view);
-    url.searchParams.set('userId', state.userId);
+    const proof = getLineProof() || {};
+    Object.keys(proof).forEach(function(key) {
+      url.searchParams.set(key, proof[key]);
+    });
     Object.keys(extraParams || {}).forEach(function(key) {
       if (extraParams[key] !== '' && extraParams[key] !== null && typeof extraParams[key] !== 'undefined') {
         url.searchParams.set(key, extraParams[key]);
@@ -860,7 +885,10 @@
     if (!data || !data.ok) {
       // くわしい中身は開発者ツールにだけ
       console.error('liff_data failed', data && data.error);
-      throw makeLoadError(data && data.error === 'access denied' ? 'denied' : 'server');
+      const kind = data && data.error === 'access denied'
+        ? 'denied'
+        : (data && data.error === 'login required' ? 'relogin' : 'server');
+      throw makeLoadError(kind);
     }
     return data.data;
   }
@@ -897,7 +925,7 @@
       '<h3>' + escapeHtml((payload.marketFlag ? payload.marketFlag + ' ' : '') + (payload.name || payload.ticker)) + '</h3>',
       '<p>' + escapeHtml(payload.marketTicker || '-') + (payload.source ? '・' + escapeHtml(payload.source) : '') + '</p>',
       '</div>',
-      '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noreferrer">🔍 株探で見る</a>',
+      '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noopener noreferrer">🔍 株探で見る</a>',
       '</div>',
       '<div class="stat-row">',
       '<div class="metric-block"><h4 class="mono big-price">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>いまの株価・前日比 <span class="delta ' + getDeltaClass(payload.changePercent || '') + '">' + escapeHtml(payload.changePercent || '-') + '</span></p></div>',
@@ -1045,7 +1073,7 @@
         '<h4>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</h4>',
         '<p>' + escapeHtml(item.marketTicker || '-') + '</p>',
         '</div>',
-        '<a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(item.ticker) + '</a>',
+        '<a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noopener noreferrer">🔍 ' + escapeHtml(item.ticker) + '</a>',
         '</div>',
         '<div class="record-row">',
         '<strong class="mono">' + escapeHtml(item.currentPrice || '-') + '</strong>',

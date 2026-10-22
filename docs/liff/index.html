@@ -16,6 +16,8 @@
     <script src="./config.js"></script>
     <script>
       (function() {
+        // 手元の設定（config.local.js。git に入れない）は、手元で開いたときだけ読む
+        if (['localhost', '127.0.0.1', '[::1]'].indexOf(location.hostname) < 0) return;
         var script = document.createElement('script');
         script.src = './config.local.js';
         script.onerror = function() {};
@@ -104,6 +106,6 @@
       </div>
     </div>
 
-    <script src="./app.js?v=202610231" defer></script>
+    <script src="./app.js?v=202610232" defer></script>
   </body>
 </html>

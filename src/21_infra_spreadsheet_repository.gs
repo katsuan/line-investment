@@ -50,10 +50,19 @@ function toRecord_(headers, row) {
   return record;
 }
 
+// シートに書く1行。外から来た文字（名前・銘柄名・相場のページの文字など）が式として動かないようにする（G1）
 function recordToRow_(headers, record) {
   return headers.map(function(header) {
-    return Object.prototype.hasOwnProperty.call(record, header) ? record[header] : '';
+    return toSafeSheetValue_(Object.prototype.hasOwnProperty.call(record, header) ? record[header] : '');
   });
+}
+
+// 「-1.23%」「+5」のような数の文字はそのまま（式にはならない）。ほかは safeCell（99_selfcheck.gs）
+function toSafeSheetValue_(value) {
+  if (typeof value === 'string' && /^[+-]?[\d.,]+%?$/.test(value)) {
+    return value;
+  }
+  return safeCell(value);
 }
 
 function findRowIndexByKeys_(rows, keyNames, keyValues) {
@@ -454,6 +463,11 @@ function appendEventLog_(eventLog) {
     detail: '',
     errorMessage: '',
   }, eventLog);
+  // 記録には、LINE のユーザー ID をそのまま残さない（S2）。長すぎる中身は切る（G6）
+  record.userId = maskLineUserId_(record.userId);
+  ['detail', 'errorMessage'].forEach(function(key) {
+    record[key] = maskLineUserIdsInText_(record[key]).slice(0, 2000);
+  });
   sheet.appendRow(recordToRow_(EVENT_LOG_HEADERS_MEMO_, record));
   return record;
 }

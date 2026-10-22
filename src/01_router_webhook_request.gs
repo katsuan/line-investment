@@ -1,4 +1,8 @@
 function processLineGroupBotWebhookRequest_(request) {
+  if (!isWebhookKeyAccepted_(request)) {
+    return createOkTextOutput_(); // 合言葉がちがう知らせは、何もしない（記録もしない）
+  }
+
   try {
     const body = JSON.parse((request && request.postData && request.postData.contents) || '{}');
     const events = body.events || [];
@@ -7,7 +11,7 @@ function processLineGroupBotWebhookRequest_(request) {
       try {
         routeLineWebhookEvent_(event);
       } catch (error) {
-        logEventResult_(event, 'event_error', 'error', safeJsonStringify_(event), buildErrorMessage_(error));
+        logEventResult_(event, 'event_error', 'error', safeJsonStringify_(event).slice(0, 1000), buildErrorMessage_(error));
       }
     });
   } catch (error) {
@@ -15,7 +19,7 @@ function processLineGroupBotWebhookRequest_(request) {
       eventType: 'webhook_parse',
       action: 'runLineGroupBotPost',
       result: 'error',
-      detail: request && request.postData ? request.postData.contents : '',
+      detail: request && request.postData ? String(request.postData.contents || '').slice(0, 500) : '',
       errorMessage: buildErrorMessage_(error),
     });
   }
@@ -42,17 +46,26 @@ function processLineGroupBotLiffDataRequest_(request) {
   const params = (request && request.parameter) || {};
   const groupId = normalizeCommandText_(params.groupId || '');
   const view = normalizeCommandText_(params.view || 'watchlist');
-  const userId = normalizeCommandText_(params.userId || '');
   const forceRefresh = String(params.refresh || '') === '1';
 
-  if (!groupId || !userId) {
+  if (!isValidLineGroupId_(groupId)) {
     return createJsonOutput_({
       ok: false,
-      error: 'groupId and userId are required.',
+      error: 'groupId is required.',
     });
   }
 
-  if (!isAccessAllowed_(groupId, userId)) {
+  // 本人は、LINE に確かめた印（ID トークンかアクセストークン）で決める。画面から送られた userId は使わない
+  const userId = resolveLiffRequestUserId_(params);
+  if (!userId) {
+    return createJsonOutput_({
+      ok: false,
+      error: 'login required',
+    });
+  }
+
+  // 管理者のほかは、そのグループにいまいて、ルールを確認した人だけ
+  if (!isAccessAllowed_(groupId, userId) || (!isAdminUser_(userId) && !isLineGroupMember_(groupId, userId))) {
     return createJsonOutput_({
       ok: false,
       error: 'access denied',
@@ -85,7 +98,7 @@ function processLineGroupBotLiffDataRequest_(request) {
 
   if (view === 'quote') {
     const ticker = normalizeTickerCode_(params.ticker || '');
-    if (!ticker) {
+    if (!isValidTickerCode_(ticker)) {
       return createJsonOutput_({
         ok: false,
         error: 'ticker is required for quote view',
@@ -110,6 +123,9 @@ function processLineGroupBotLiffDataRequest_(request) {
 }
 
 function routeLineWebhookEvent_(event) {
+  if (!event || !event.source || event.source.type !== 'group' || !event.source.groupId) {
+    return; // グループの外（1対1・複数人トーク）の知らせには、返事も記録もしない
+  }
   switch (event.type) {
     case 'join':
       handleJoin_(event);

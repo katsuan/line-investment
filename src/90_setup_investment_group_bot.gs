@@ -95,6 +95,7 @@ function ensureSheetWithHeaders_(spreadsheet, sheetName, headers) {
 
   const hasHeader = sheet.getLastRow() > 0;
   if (!hasHeader) {
+    // qcheck-ok: G1 決まった見出しだけ
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold');
@@ -116,6 +117,7 @@ function ensureMissingHeaders_(sheet, headers) {
   }
 
   const startColumn = existingHeaders.filter(String).length + 1;
+  // qcheck-ok: G1 決まった見出しだけ
   sheet.getRange(1, startColumn, 1, missingHeaders.length).setValues([missingHeaders]);
   sheet.getRange(1, 1, 1, startColumn + missingHeaders.length - 1).setFontWeight('bold');
   sheet.autoResizeColumns(startColumn, missingHeaders.length);
@@ -164,7 +166,7 @@ function seedOrUpdateDefaultRule_() {
   ];
   const existing = getRuleByVersion_(DEFAULT_RULE_VERSION_);
   if (!existing) {
-    sheet.appendRow(defaultRuleRow);
+    sheet.appendRow(defaultRuleRow.map(safeCell)); // 「---」で始まる文も、式にせず文字のまま
     return;
   }
 
@@ -211,7 +213,7 @@ function updateRuleVersionOne_(rowValues) {
   const values = sheet.getDataRange().getValues();
   for (let rowIndex = 1; rowIndex < values.length; rowIndex += 1) {
     if (Number(values[rowIndex][0]) === DEFAULT_RULE_VERSION_) {
-      sheet.getRange(rowIndex + 1, 1, 1, rowValues.length).setValues([rowValues]);
+      sheet.getRange(rowIndex + 1, 1, 1, rowValues.length).setValues([rowValues.map(safeCell)]);
       return;
     }
   }

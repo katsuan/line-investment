@@ -193,7 +193,9 @@ function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
 
 function buildAgreementButtonLabel_(displayNames) {
   if (displayNames.length === 1) {
-    return '→' + displayNames[0] + 'さん ルール確認しました';
+    // ボタンの文字は 40 字まで（LINE の名前は 20 字まで。念のため切る）
+    const name = Array.from(String(displayNames[0] || '')).slice(0, 20).join('');
+    return '→' + name + 'さん ルール確認しました';
   }
 
   if (displayNames.length > 1) {
@@ -254,7 +256,8 @@ function buildRuleFlexMessage_(rule) {
   };
 }
 
-function buildBotSettingsFlexMessage_(group) {
+function buildBotSettingsFlexMessage_(group, options) {
+  const showAccessCounts = !!(options && options.showAccessCounts);
   const allowedGroupIds = getAllowedGroupIds_();
   const allowedUserIds = getAllowedUserIds_();
   const accessControlEnabled = allowedGroupIds.length > 0 || allowedUserIds.length > 0;
@@ -304,6 +307,8 @@ function buildBotSettingsFlexMessage_(group) {
             size: 'sm',
             wrap: true,
           },
+        ].concat(showAccessCounts ? [
+          // ほかのグループの数もわかるので、管理者にだけ出す
           {
             type: 'text',
             text: '許可グループ数：' + allowedGroupIds.length + ' / 許可ユーザー数：' + allowedUserIds.length,
@@ -311,7 +316,7 @@ function buildBotSettingsFlexMessage_(group) {
             color: '#666666',
             wrap: true,
           },
-        ],
+        ] : []),
       },
     },
   };
@@ -1315,7 +1320,7 @@ function buildWatchlistSummaryFlexMessage_(groupId, records, totalCount) {
               },
               {
                 type: 'text',
-                text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + ' / ' + formatDateDisplayOnly_(record.addedAt),
+                text: '注目 ' + toLineText_(record.addedByDisplayName, '-') + ' / ' + formatDateDisplayOnly_(record.addedAt),
                 size: 'xs',
                 color: '#666666',
                 wrap: true,
@@ -1562,7 +1567,7 @@ function buildWatchQuoteCard_(options) {
 
   bodyContents.push({
     type: 'text',
-    text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + '・' + toLineText_(marketTicker, '-') + '・Google Finance',
+    text: '注目 ' + toLineText_(record.addedByDisplayName, '-') + '・' + toLineText_(marketTicker, '-') + '・Google Finance',
     size: 'xxs',
     color: '#666666',
     wrap: true,
