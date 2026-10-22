@@ -60,8 +60,12 @@ function handleMemberJoined_(event) {
     }
   });
 
+  const targetUserIds = joinedMembers.map(function(member) {
+    return member.userId;
+  });
+
   const rule = getCurrentRuleForGroup_(groupId);
-  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames)], groupId);
+  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames, targetUserIds)], groupId);
   logEventResult_(event, 'member_joined_reply', 'success', 'welcome flex sent', '');
 }
 
@@ -83,6 +87,14 @@ function handlePostback_(event) {
 
   if (!isGroupAccessAllowed_(groupId)) {
     logEventResult_(event, 'postback_denied', 'ignored', 'group is not allowed', '');
+    return;
+  }
+
+  const targetUserIds = (params.targetUserIds || '').split(',').filter(function(id) {
+    return !!id;
+  });
+  if (targetUserIds.length > 0 && targetUserIds.indexOf(userId) < 0) {
+    logEventResult_(event, 'postback_ignored', 'ignored', 'tapped by non-target user', userId);
     return;
   }
 
@@ -170,7 +182,7 @@ function handleMessage_(event) {
       const actor = getActorProfileForGroup_(groupId, userId);
       const rule = getCurrentRuleForGroup_(groupId);
       const displayNames = actor.displayName ? [actor.displayName] : [];
-      sendReplyMessage_(event.replyToken, [buildRuleConfirmationPromptFlexMessage_(rule, displayNames)], groupId);
+      sendReplyMessage_(event.replyToken, [buildRuleConfirmationPromptFlexMessage_(rule, displayNames, [userId])], groupId);
       logEventResult_(event, 'message_rule_prompt', 'success', 'rule confirmation prompted for unallowed user', text);
       return;
     }

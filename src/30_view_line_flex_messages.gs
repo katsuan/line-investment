@@ -18,7 +18,7 @@ function buildJoinGuideTextMessage_() {
   };
 }
 
-function buildWelcomeFlexMessage_(rule, displayNames) {
+function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '新しいメンバーさん';
   const agreementButtonLabel = buildAgreementButtonLabel_(displayNames);
   return {
@@ -87,7 +87,7 @@ function buildWelcomeFlexMessage_(rule, displayNames) {
             action: {
               type: 'postback',
               label: agreementButtonLabel,
-              data: 'action=agree_rules&ruleVersion=' + rule.version,
+              data: buildAgreeRulesPostbackData_(rule.version, targetUserIds),
               displayText: agreementButtonLabel,
             },
           },
@@ -97,7 +97,7 @@ function buildWelcomeFlexMessage_(rule, displayNames) {
   };
 }
 
-function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
+function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '参加者さん';
   const agreementButtonLabel = buildAgreementButtonLabel_(displayNames);
   return {
@@ -166,7 +166,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
             action: {
               type: 'postback',
               label: agreementButtonLabel,
-              data: 'action=agree_rules&ruleVersion=' + rule.version,
+              data: buildAgreeRulesPostbackData_(rule.version, targetUserIds),
               displayText: agreementButtonLabel,
             },
           },
@@ -174,6 +174,21 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
       },
     },
   };
+}
+
+function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
+  const ids = (targetUserIds || []).filter(function(id) {
+    return !!id;
+  });
+  let data = 'action=agree_rules&ruleVersion=' + ruleVersion;
+  if (ids.length > 0) {
+    const withTargets = data + '&targetUserIds=' + encodeURIComponent(ids.join(','));
+    // LINE のボタンのデータは300字まで。こえるとき（大勢が同時に入ったとき）は、だれでも押せる形にする
+    if (withTargets.length <= 300) {
+      data = withTargets;
+    }
+  }
+  return data;
 }
 
 function buildAgreementButtonLabel_(displayNames) {
