@@ -42,7 +42,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging API のチャネルアクセストークン
 - `ADMIN_USER_IDS`: 任意。将来の管理者制限用にカンマ区切りで保持可能
 - `STOCK_EXCHANGE_SUFFIX`: 任意。既定値は `TYO`
-- `LIFF_APP_BASE_URL`: 任意。`#LIFF一覧` 用の GitHub Pages URL
+- `LIFF_APP_BASE_URL`: 任意。`#注目一覧`・`#注目実績`・カードのボタンで開く画面の URL
 - `MARKET_DATA_CACHE_MINUTES`: 任意。相場情報キャッシュ分数。既定値は `5`
 
 ## 初回セットアップ
@@ -73,7 +73,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 - デバッグ用隠しコマンド: `#LIFF一覧`
 - 返却内容: GitHub Pages 上の LIFF 起動用 Flex
-- LIFF のタブ順: `銘柄検索 / 注目一覧 / 注目実績`
+- LIFF のタブ順: `しらべる / 注目一覧 / 実績`
 - LIFF からのデータ取得: `doGet?action=liff_data`
 
 `#LIFF一覧` は通常の使い方ガイドには載せず、デバッグ期間中のみ利用します。
@@ -154,4 +154,12 @@ debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.e
 - 初期実装は `group` のみ対応です
 - 通常会話には反応しません
 - LINE API エラーやイベント例外は `EVENT_LOG` に保存します
+- ふつうの会話（`#` で始まらないもの）には返事をせず、`EVENT_LOG` にも書きません
+- カードを LINE が受けつけなかったときは、文字だけで返事をして、原因を Script Properties の `LAST_LINE_ERRORS`（最後の5件）と `EVENT_LOG` に残します
 - `replyToken` は各イベントで1回のみ利用しています
+
+## 使い心地の決まりとちがうところ
+
+- 入力中の表示：LINE の「入力中…」は1対1のトークでしか出せないため、グループで使うこのボットでは出していません。代わりに、シートや設定を1回の返事で1回だけ読むようにして、返事を速くしています
+- 見出しのロゴ・アイコン・紹介のページ：名前とアイコンが決まってから足します
+- 送るボタン：ほかのトークを選んで送るのではなく、開いたトークに `#コード` を送るので、ボタンは「💬 グループに送る」です

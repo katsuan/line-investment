@@ -1,5 +1,12 @@
+// 1回の呼び出しの中では、同じシートは1回だけ読む（H9）。書くとき（ロックの中）は、読みなおしてから書く
+let SPREADSHEET_MEMO_ = null;
+let TABLE_DATA_MEMO_ = {};
+
 function openSpreadsheet_() {
-  return SpreadsheetApp.openById(getSpreadsheetId_());
+  if (!SPREADSHEET_MEMO_) {
+    SPREADSHEET_MEMO_ = SpreadsheetApp.openById(getSpreadsheetId_());
+  }
+  return SPREADSHEET_MEMO_;
 }
 
 function getSheetOrThrow_(name) {
@@ -10,7 +17,15 @@ function getSheetOrThrow_(name) {
   return sheet;
 }
 
+function clearTableDataMemo_() {
+  TABLE_DATA_MEMO_ = {};
+}
+
 function getTableData_(sheetName) {
+  if (TABLE_DATA_MEMO_[sheetName]) {
+    return TABLE_DATA_MEMO_[sheetName];
+  }
+
   const sheet = getSheetOrThrow_(sheetName);
   const values = sheet.getDataRange().getValues();
   if (values.length === 0) {
@@ -22,7 +37,9 @@ function getTableData_(sheetName) {
     return toRecord_(headers, row);
   });
 
-  return { sheet: sheet, headers: headers, rows: rows };
+  const table = { sheet: sheet, headers: headers, rows: rows };
+  TABLE_DATA_MEMO_[sheetName] = table;
+  return table;
 }
 
 function toRecord_(headers, row) {
@@ -418,22 +435,27 @@ function getLatestMarketDataRecordMapByTickers_(tickers) {
   return latestMap;
 }
 
+// 記録は見出しの行だけ読んで1行足す（記録のシートは長くなるので、全部は読まない）
+let EVENT_LOG_HEADERS_MEMO_ = null;
+
 function appendEventLog_(eventLog) {
-  return withScriptLock_(function() {
-    const table = getTableData_(SHEET_NAMES_.EVENT_LOG);
-    const record = Object.assign({
-      timestamp: nowJst_(),
-      eventType: '',
-      groupId: '',
-      userId: '',
-      action: '',
-      result: '',
-      detail: '',
-      errorMessage: '',
-    }, eventLog);
-    table.sheet.appendRow(recordToRow_(table.headers, record));
-    return record;
-  });
+  const sheet = getSheetOrThrow_(SHEET_NAMES_.EVENT_LOG);
+  if (!EVENT_LOG_HEADERS_MEMO_) {
+    const lastColumn = sheet.getLastColumn();
+    EVENT_LOG_HEADERS_MEMO_ = lastColumn > 0 ? sheet.getRange(1, 1, 1, lastColumn).getValues()[0] : [];
+  }
+  const record = Object.assign({
+    timestamp: nowJst_(),
+    eventType: '',
+    groupId: '',
+    userId: '',
+    action: '',
+    result: '',
+    detail: '',
+    errorMessage: '',
+  }, eventLog);
+  sheet.appendRow(recordToRow_(EVENT_LOG_HEADERS_MEMO_, record));
+  return record;
 }
 
 function logEventResult_(event, action, result, detail, errorMessage) {

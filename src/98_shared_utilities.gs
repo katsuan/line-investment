@@ -37,9 +37,12 @@ function createJsonOutput_(value) {
 function withScriptLock_(callback) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
+  // ロックの中では、ほかの呼び出しが書いた分も含めて読みなおす。書いたあとも読みなおす
+  clearTableDataMemo_();
   try {
     return callback();
   } finally {
+    clearTableDataMemo_();
     lock.releaseLock();
   }
 }

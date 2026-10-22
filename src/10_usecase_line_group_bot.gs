@@ -108,9 +108,10 @@ function handlePostback_(event) {
 
   sendReplyMessage_(event.replyToken, [
     buildUsageGuideFlexMessage_({
-      leadText: 'ルール確認を記録しました。\n利用を許可しました。',
+      leadText: (displayName ? displayName + 'さん、' : '') + 'ルールの確認を記録しました。今日から使えます。',
+      watchlistUrl: buildLiffAppLaunchUrl_(groupId, 'watchlist'),
     }),
-  ], groupId);
+  ], groupId, { quickReply: buildMainQuickReply_(groupId) });
   logEventResult_(event, 'agree_rules', 'success', 'rule agreement recorded', '');
 }
 
@@ -118,8 +119,7 @@ function handleMessage_(event) {
   assertGroupEvent_(event);
 
   if (!event.message || event.message.type !== 'text') {
-    logEventResult_(event, 'message_ignored', 'ignored', 'non-text message', '');
-    return;
+    return; // ふつうの写真・スタンプには返事をしない（記録もしない）
   }
 
   const text = normalizeCommandText_(event.message.text);
@@ -128,15 +128,14 @@ function handleMessage_(event) {
   const isSupportedCommand = isSupportedBotCommand_(text);
 
   if (!isSupportedCommand) {
-    logEventResult_(event, 'message_ignored', 'ignored', 'not a supported command', '');
-    return;
+    return; // ふつうの会話には返事をしない（毎回シートに書くと遅くなるので、記録もしない）
   }
 
   if (text === '#グループ許可') {
     if (!isAdminUser_(userId)) {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
-        text: 'グループ許可は管理者のみ実行できます。',
+        text: 'これは管理者だけが使えます。',
       }], groupId);
       logEventResult_(event, 'command_group_allow', 'ignored', 'admin only', '');
       return;
@@ -160,7 +159,7 @@ function handleMessage_(event) {
 
     sendReplyMessage_(event.replyToken, [{
       type: 'text',
-      text: 'このグループを利用許可しました。\n新規参加者には入室時にルール案内を送ります。',
+      text: 'このグループで使えるようにしました。\n新しく入った人には、ルールの案内を送ります。',
     }], groupId);
     logEventResult_(event, 'command_group_allow', 'success', 'group allowed', groupId);
     return;
@@ -186,7 +185,8 @@ function handleMessage_(event) {
 
   if (text === '#ルール') {
     const rule = getCurrentRuleForGroup_(groupId);
-    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId);
+    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId,
+      isAccessAllowed_(groupId, userId) ? { quickReply: buildMainQuickReply_(groupId) } : {});
     logEventResult_(event, 'command_rules', 'success', 'rule flex sent', '');
     return;
   }
@@ -195,15 +195,15 @@ function handleMessage_(event) {
     const rule = getCurrentRuleForGroup_(groupId);
     const members = getUnconfirmedMembers_(groupId, rule.version);
     const message = members.length === 0
-      ? '全員が現在のルールを確認済みです。'
+      ? '全員が、いまのルールを確認しています。'
       : [
-        'ルール未確認メンバー',
+        'ルールをまだ確認していない人',
         '',
         members.map(function(member) {
           return '・' + (member.displayName || member.userId);
         }).join('\n'),
         '',
-        '現在のルール：Version ' + rule.version,
+        'いまのルール：Version ' + rule.version,
       ].join('\n');
 
     sendReplyMessage_(event.replyToken, [{
@@ -222,56 +222,30 @@ function handleMessage_(event) {
   }
 
   if (text === '#使い方' || text === '#ヘルプ') {
-    sendReplyMessage_(event.replyToken, [buildUsageGuideFlexMessage_()], groupId);
+    sendReplyMessage_(event.replyToken, [buildUsageGuideFlexMessage_({
+      watchlistUrl: buildLiffAppLaunchUrl_(groupId, 'watchlist'),
+    })], groupId, { quickReply: buildMainQuickReply_(groupId) });
     logEventResult_(event, 'command_usage_guide', 'success', 'usage guide sent', text);
     return;
   }
 
-  if (text === '#LIFF一覧') {
-    const liffUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
+  if (text === '#LIFF一覧' || text === '#注目一覧' || text === '#注目実績') {
+    const view = text === '#注目実績' ? 'performance' : 'watchlist';
+    const action = text === '#注目実績' ? 'command_watch_performance' : (text === '#注目一覧' ? 'command_watchlist' : 'command_liff_launch');
+    const liffUrl = buildLiffAppLaunchUrl_(groupId, view);
     if (!liffUrl) {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
-        text: 'LIFF_APP_BASE_URL が未設定です。',
+        text: '画面を開くリンクが、まだ用意されていません。管理者に伝えてね。',
       }], groupId);
-      logEventResult_(event, 'command_liff_launch', 'ignored', 'LIFF_APP_BASE_URL missing', '');
+      logEventResult_(event, action, 'ignored', 'LIFF_APP_BASE_URL missing', '');
       return;
     }
 
-    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl)], groupId);
-    logEventResult_(event, 'command_liff_launch', 'success', 'liff launch url sent', liffUrl);
-    return;
-  }
-
-  if (text === '#注目一覧') {
-    const liffUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
-    if (!liffUrl) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: '画面の起動URLが未設定です。',
-      }], groupId);
-      logEventResult_(event, 'command_watchlist', 'ignored', 'LIFF_APP_BASE_URL missing', '');
-      return;
-    }
-
-    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl)], groupId);
-    logEventResult_(event, 'command_watchlist', 'success', 'watchlist launch sent', liffUrl);
-    return;
-  }
-
-  if (text === '#注目実績') {
-    const liffUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
-    if (!liffUrl) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: '画面の起動URLが未設定です。',
-      }], groupId);
-      logEventResult_(event, 'command_watch_performance', 'ignored', 'LIFF_APP_BASE_URL missing', '');
-      return;
-    }
-
-    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl)], groupId);
-    logEventResult_(event, 'command_watch_performance', 'success', 'watch performance launch sent', liffUrl);
+    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl, view)], groupId, {
+      quickReply: buildMainQuickReply_(groupId),
+    });
+    logEventResult_(event, action, 'success', view + ' launch sent', liffUrl);
     return;
   }
 
@@ -283,7 +257,7 @@ function handleMessage_(event) {
       if (!isAdminUser_(userId)) {
         sendReplyMessage_(event.replyToken, [{
           type: 'text',
-          text: '全解除は管理者のみ実行できます。',
+          text: '全部の注目を外すのは、管理者だけができます。\n自分の注目は「#解除 7203」のように外せます。',
         }], groupId);
         logEventResult_(event, 'command_watch_remove_all', 'ignored', 'admin only', '');
         return;
@@ -293,8 +267,8 @@ function handleMessage_(event) {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
         text: deactivatedRecords.length === 0
-          ? '解除対象の注目銘柄はありません。'
-          : '注目銘柄を全解除しました。\n対象: ' + deactivatedRecords.length + '件',
+          ? '外す注目銘柄はありません。'
+          : '注目銘柄を全部外しました（' + deactivatedRecords.length + '件）。',
       }], groupId);
       logEventResult_(event, 'command_watch_remove_all', 'success', 'all watchlist records deactivated', String(deactivatedRecords.length));
       return;
@@ -304,8 +278,8 @@ function handleMessage_(event) {
     if (!existingRecord || String(existingRecord.active) === 'false') {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
-        text: ticker + ' は注目銘柄に登録されていません。',
-      }], groupId);
+        text: ticker + ' は注目に入っていません。',
+      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
       logEventResult_(event, 'command_watch_remove', 'ignored', 'watchlist record not found', ticker);
       return;
     }
@@ -315,7 +289,7 @@ function handleMessage_(event) {
       if (!ownerUserId || ownerUserId !== String(userId)) {
         sendReplyMessage_(event.replyToken, [{
           type: 'text',
-          text: '単体解除は登録者本人または管理者のみ実行できます。',
+          text: ticker + ' を外せるのは、注目に入れた人か管理者だけです。',
         }], groupId);
         logEventResult_(event, 'command_watch_remove', 'ignored', 'not owner or admin', ticker);
         return;
@@ -325,9 +299,9 @@ function handleMessage_(event) {
     const deactivatedRecord = deactivateWatchlistRecord_(groupId, ticker, userId, actor.displayName);
     sendReplyMessage_(event.replyToken, [{
       type: 'text',
-      text: '注目解除: ' + ticker + '\n' +
-        toLineText_(deactivatedRecord.tickerName || existingRecord.tickerName || ticker, ticker) + ' を一覧から外しました。',
-    }], groupId);
+      text: '注目から外しました：' + ticker + '\n' +
+        toLineText_(deactivatedRecord.tickerName || existingRecord.tickerName || ticker, ticker),
+    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
     logEventResult_(event, 'command_watch_remove', 'success', 'watchlist record deactivated', ticker);
     return;
   }
@@ -337,8 +311,8 @@ function handleMessage_(event) {
     if (!ticker) {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
-        text: '登録するティッカーを指定してください。\n例: #7203 / #AAPL / #MCD / #GOOGL',
-      }], groupId);
+        text: '「#」のあとに銘柄コードを入れて送ってね。\n例：#7203（日本株）・#AAPL（米国株）',
+      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
       logEventResult_(event, 'command_watch_add', 'ignored', 'ticker missing', '');
       return;
     }
@@ -355,14 +329,16 @@ function handleMessage_(event) {
     if (!hasUsableQuoteForWatchAdd_(quoteAtRegistration)) {
       sendReplyMessage_(event.replyToken, [{
         type: 'text',
-        text: ticker + ' は見つかりませんでした。',
-      }], groupId);
+        text: ticker + ' の株価が見つかりませんでした。\nコードを確かめて、もう一度送ってね。\n例：#7203（日本株）・#AAPL（米国株）',
+      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
       logEventResult_(event, 'command_watch_add', 'ignored', 'watch add quote unavailable', ticker);
       return;
     }
 
     if (activeRecord) {
-      sendReplyMessage_(event.replyToken, [buildWatchAlreadyActiveFlexMessage_(activeRecord, quoteAtRegistration)], groupId);
+      sendReplyMessage_(event.replyToken, [buildWatchAlreadyActiveFlexMessage_(activeRecord, quoteAtRegistration, buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
+        quickReply: buildMainQuickReply_(groupId),
+      });
       logEventResult_(event, 'command_watch_add', 'ignored', 'watchlist record already active', ticker);
       return;
     }
@@ -382,7 +358,9 @@ function handleMessage_(event) {
       active: true,
     });
 
-    sendReplyMessage_(event.replyToken, [buildWatchRegistrationFlexMessage_(record, quoteAtRegistration)], groupId);
+    sendReplyMessage_(event.replyToken, [buildWatchRegistrationFlexMessage_(record, quoteAtRegistration, buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
+      quickReply: buildMainQuickReply_(groupId),
+    });
     logEventResult_(event, 'command_watch_add', 'success', 'watchlist record created', ticker);
     return;
   }
@@ -415,7 +393,7 @@ function getActorProfileForGroup_(groupId, userId) {
     }, 'get_member_profile', 'error', 'actor profile fetch failed', buildErrorMessage_(error));
   }
 
-  if (displayName) {
+  if (displayName && !isMemberRecordUpToDate_(groupId, userId, displayName)) {
     upsertMemberRecord_({
       groupId: groupId,
       userId: userId,
@@ -428,6 +406,16 @@ function getActorProfileForGroup_(groupId, userId) {
     userId: userId,
     displayName: displayName,
   };
+}
+
+function isMemberRecordUpToDate_(groupId, userId, displayName) {
+  const rows = getTableData_(SHEET_NAMES_.MEMBERS).rows;
+  const rowIndex = findRowIndexByKeys_(rows, ['groupId', 'userId'], { groupId: groupId, userId: userId });
+  if (rowIndex < 0) {
+    return false;
+  }
+  const row = rows[rowIndex];
+  return String(row.displayName || '') === String(displayName) && String(row.active) !== 'false';
 }
 
 function hydrateRecentWatchlistWithCurrentQuotes_(records, options) {
@@ -495,8 +483,8 @@ function isGroupAccessAllowed_(groupId) {
 
 function buildAccessDeniedText_() {
   return [
-    'このBotは現在、許可されたユーザー・グループのみ利用できます。',
-    '利用を希望する場合は管理者に連絡してください。'
+    'このグループでは、まだ使えません。',
+    '使いたいときは、管理者に伝えてね。'
   ].join('\n');
 }
 

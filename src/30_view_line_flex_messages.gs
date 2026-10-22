@@ -4,19 +4,16 @@ function buildJoinGuideTextMessage_() {
     text: [
       'Botを追加しました。',
       '',
-      'このBotは、新しく参加したメンバーに',
-      'グループの目的とルールを案内します。',
+      '新しく入った人に、グループの目的とルールを案内します。',
+      'ルールを確認した人は、銘柄を注目に入れたり、一覧を見たりできます。',
       '',
-      '利用できるコマンド',
-      '#ルール',
-      '#未確認',
-      '#グループ許可',
-      '#使い方',
-      '#ヘルプ',
-      '#注目一覧',
-      '#解除 7203',
-      '#注目実績',
-      '#Bot設定',
+      'つかえる言葉',
+      '#7203 … 銘柄を注目に入れる',
+      '#注目一覧 … 一覧を画面で見る',
+      '#注目実績 … みんなの実績を見る',
+      '#解除 7203 … 自分の注目を外す',
+      '#ルール … ルールを見る',
+      '#使い方 … 使い方を見る',
     ].join('\n'),
   };
 }
@@ -30,18 +27,13 @@ function buildWelcomeFlexMessage_(rule, displayNames) {
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: buildCardBandHeader_('👋 ようこそ', '投資情報共有グループへようこそ'),
+      styles: buildCardBandStyles_(),
       body: {
         type: 'box',
         layout: 'vertical',
         spacing: 'sm',
         contents: [
-          {
-            type: 'text',
-            text: '🏛️ 投資情報共有グループへようこそ',
-            weight: 'bold',
-            size: 'md',
-            wrap: true,
-          },
           {
             type: 'text',
             text: namesText + '、参加ありがとうございます。',
@@ -91,6 +83,7 @@ function buildWelcomeFlexMessage_(rule, displayNames) {
           {
             type: 'button',
             style: 'primary',
+            color: BOT_ACCENT_COLOR_,
             action: {
               type: 'postback',
               label: agreementButtonLabel,
@@ -113,6 +106,8 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: buildCardBandHeader_('📜 はじめに', 'ルールの確認をお願いします'),
+      styles: buildCardBandStyles_(),
       body: {
         type: 'box',
         layout: 'vertical',
@@ -120,14 +115,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
         contents: [
           {
             type: 'text',
-            text: 'ルール確認のお願い',
-            weight: 'bold',
-            size: 'md',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: namesText + '、コマンド実行には先にルール確認が必要です。',
+            text: namesText + '、使う前に、下のルールを読んで「確認しました」を押してね。',
             size: 'sm',
             wrap: true,
           },
@@ -174,6 +162,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
           {
             type: 'button',
             style: 'primary',
+            color: BOT_ACCENT_COLOR_,
             action: {
               type: 'postback',
               label: agreementButtonLabel,
@@ -206,24 +195,13 @@ function buildRuleFlexMessage_(rule) {
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, rule.title),
+      styles: buildCardBandStyles_(),
       body: {
         type: 'box',
         layout: 'vertical',
         spacing: 'sm',
         contents: [
-          {
-            type: 'text',
-            text: rule.title,
-            weight: 'bold',
-            size: 'md',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: 'Version ' + rule.version,
-            size: 'xs',
-            color: '#666666',
-          },
           {
             type: 'text',
             text: rule.purpose,
@@ -324,12 +302,17 @@ function buildBotSettingsFlexMessage_(group) {
   };
 }
 
-function buildLiffLaunchFlexMessage_(liffUrl) {
+function buildLiffLaunchFlexMessage_(liffUrl, view) {
+  const isPerformance = view === 'performance';
+  const band = isPerformance ? '🏆 注目実績' : '📋 注目一覧';
+  const title = isPerformance ? 'みんなの実績を見る' : '注目一覧を画面で見る';
   return {
     type: 'flex',
-    altText: '注目一覧を開く',
+    altText: isPerformance ? '注目実績を開く' : '注目一覧を開く',
     contents: {
       type: 'bubble',
+      header: buildCardBandHeader_(band, title),
+      styles: buildCardBandStyles_(),
       body: {
         type: 'box',
         layout: 'vertical',
@@ -337,19 +320,15 @@ function buildLiffLaunchFlexMessage_(liffUrl) {
         contents: [
           {
             type: 'text',
-            text: '注目一覧を開く',
-            weight: 'bold',
-            size: 'md',
-          },
-          {
-            type: 'text',
-            text: '一覧と実績を画面で確認できます。',
+            text: isPerformance
+              ? '注目した銘柄が、そのあと何%動いたかの順位を見られます。'
+              : '注目中の銘柄と、いまの株価を表で見られます。',
             size: 'sm',
             wrap: true,
           },
           {
             type: 'text',
-            text: '注目実績は画面内のタブから切り替えできます。',
+            text: '画面の上のタブで、一覧・実績・しらべるを切りかえられます。',
             size: 'xs',
             color: '#666666',
             wrap: true,
@@ -360,15 +339,7 @@ function buildLiffLaunchFlexMessage_(liffUrl) {
         type: 'box',
         layout: 'vertical',
         contents: [
-          {
-            type: 'button',
-            style: 'primary',
-            action: {
-              type: 'uri',
-              label: '画面を開く',
-              uri: liffUrl,
-            },
-          },
+          buildCardButton_(isPerformance ? '🏆 実績を開く' : '📋 注目一覧を開く', { type: 'uri', uri: liffUrl }, true),
         ],
       },
     },
@@ -380,17 +351,18 @@ function buildUsageGuideFlexMessage_(options) {
   const cards = [
     {
       command: '#7203 / #AAPL',
-      detail: '気になる銘柄を注目登録',
+      detail: '気になる銘柄を注目に入れる',
       quickActionText: '#7203',
     },
     {
       command: '#注目一覧',
-      detail: '注目中の銘柄をまとめて確認',
+      detail: '注目中の銘柄を画面でまとめて見る',
       quickActionText: '#注目一覧',
     },
     {
       command: '#解除 7203',
-      detail: '自分の注目銘柄を一覧から外す',
+      detail: '自分が入れた注目を外す',
+      quickActionText: '#解除 ',
     },
   ];
 
@@ -403,24 +375,23 @@ function buildUsageGuideFlexMessage_(options) {
     };
   }
 
-  function buildUsageCard_(card) {
+  // 1行：コマンド（押すと入力欄に入る）と説明
+  function buildUsageRow_(card) {
     return {
       type: 'box',
       layout: 'vertical',
-      flex: 0,
       spacing: 'xs',
       paddingAll: '12px',
       cornerRadius: '12px',
-      backgroundColor: '#F7F8FA',
-      borderWidth: '1px',
-      borderColor: '#E4E7EC',
+      backgroundColor: '#F4F7F6',
+      action: card.quickActionText ? buildKeyboardPrefillAction_(card.quickActionText) : undefined,
       contents: [
         {
           type: 'text',
-          text: card.command,
+          text: card.command + (card.quickActionText ? '  ✏️' : ''),
           size: 'sm',
           weight: 'bold',
-          color: '#0F766E',
+          color: BOT_ACCENT_COLOR_,
           wrap: true,
         },
         {
@@ -430,106 +401,60 @@ function buildUsageGuideFlexMessage_(options) {
           color: '#666666',
           wrap: true,
         },
-      ].concat(card.quickActionText ? [
-        {
-          type: 'box',
-          layout: 'horizontal',
-          margin: 'sm',
-          spacing: 'sm',
-          alignItems: 'center',
-          contents: [
-            {
-              type: 'text',
-              text: '試す👉',
-              size: 'xxs',
-              color: '#666666',
-              flex: 0,
-            },
-            {
-              type: 'box',
-              layout: 'horizontal',
-              paddingTop: '6px',
-              paddingBottom: '6px',
-              paddingStart: '10px',
-              paddingEnd: '10px',
-              cornerRadius: '999px',
-              backgroundColor: '#E8EDF3',
-              justifyContent: 'center',
-              alignItems: 'center',
-              flex: 0,
-              action: buildKeyboardPrefillAction_(card.quickActionText),
-              contents: [
-                {
-                  type: 'text',
-                  text: card.command,
-                  size: 'xxs',
-                  weight: 'bold',
-                  color: '#4B5563',
-                  align: 'center',
-                  wrap: false,
-                  flex: 0,
-                },
-              ],
-            },
-          ],
-        },
-      ] : []),
+      ],
+    };
+  }
+
+  const bodyContents = [];
+  if (settings.leadText) {
+    bodyContents.push({
+      type: 'text',
+      text: settings.leadText,
+      size: 'sm',
+      weight: 'bold',
+      wrap: true,
+    });
+  }
+  bodyContents.push({
+    type: 'text',
+    text: '「#」のあとに銘柄コードを送ると、注目に入ります。下の言葉を押すと、入力欄に入ります。',
+    size: 'xs',
+    color: '#666666',
+    wrap: true,
+  });
+  bodyContents.push({
+    type: 'box',
+    layout: 'vertical',
+    spacing: 'sm',
+    contents: cards.map(buildUsageRow_),
+  });
+
+  const bubble = {
+    type: 'bubble',
+    size: 'mega',
+    header: buildCardBandHeader_('❓ 使い方', '注目銘柄を、みんなで共有'),
+    styles: buildCardBandStyles_(),
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'md',
+      contents: bodyContents,
+    },
+  };
+  if (settings.watchlistUrl) {
+    bubble.footer = {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        buildCardButton_('📋 注目一覧を開く', { type: 'uri', uri: settings.watchlistUrl }, true),
+      ],
     };
   }
 
   return {
     type: 'flex',
-    altText: '使い方ガイド',
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'md',
-        contents: [
-          {
-            type: 'text',
-            text: '使い方ガイド',
-            weight: 'bold',
-            size: 'md',
-          },
-          {
-            type: 'text',
-            text: settings.leadText || 'ルール確認を記録しました。\n利用を許可しました。',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: 'コマンドは # から始めて送信してください。',
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: 'まずは気になる銘柄を1つ注目登録してみてください。',
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'box',
-            layout: 'vertical',
-            spacing: 'sm',
-            contents: cards.map(buildUsageCard_),
-          },
-          {
-            type: 'text',
-            text: '気になることがあれば、遠慮なくグループで質問してください。',
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-    },
+    altText: '使い方：#7203 で注目に入れる・#注目一覧 で一覧を見る・#解除 7203 で外す',
+    contents: bubble,
   };
 }
 
@@ -1522,345 +1447,139 @@ function buildWatchlistDetailFlexMessage_(record, quote) {
   };
 }
 
-function buildWatchRegistrationFlexMessage_(record, quote) {
-  const title = (quote && quote.name) || record.tickerName || ('銘柄コード ' + record.ticker);
-  const marketTicker = record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker);
-  const marketFlag = buildMarketFlagEmoji_(marketTicker);
-  const metricBoxes = buildAvailableMetricBoxes_(quote);
+function buildWatchRegistrationFlexMessage_(record, quote, watchlistUrl) {
   const pickerName = toLineText_(record.addedByDisplayName, '');
+  const title = (quote && quote.name) || record.tickerName || ('銘柄コード ' + record.ticker);
   const altLabel = '(' + record.ticker + ')' + title;
-  const altText = pickerName
-    ? '📌 ' + altLabel + 'を' + pickerName + 'がピックしました'
-    : '📌 ' + altLabel + 'をピックしました';
-
-  return {
-    type: 'flex',
-    altText: altText,
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            alignItems: 'flex-start',
-            contents: [
-              {
-                type: 'text',
-                text: toLineText_((marketFlag ? marketFlag + ' ' : '') + title, '銘柄情報'),
-                weight: 'bold',
-                size: 'md',
-                wrap: true,
-                flex: 1,
-              },
-              {
-                type: 'box',
-                layout: 'vertical',
-                flex: 0,
-                spacing: 'xs',
-                contents: [
-                  {
-                    type: 'text',
-                    text: toLineText_(marketTicker, '-'),
-                    size: 'xxs',
-                    color: '#666666',
-                    align: 'end',
-                    wrap: false,
-                  },
-                  {
-                    type: 'text',
-                    text: 'Google Finance',
-                    size: 'xxs',
-                    color: '#98A2B3',
-                    align: 'end',
-                    wrap: false,
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'baseline',
-            margin: 'md',
-            contents: [
-              {
-                type: 'text',
-                text: formatPrice_(record.addedPrice || (quote && quote.price)),
-                weight: 'bold',
-                size: 'xl',
-                flex: 0,
-              },
-              {
-                type: 'text',
-                text: formatPercent_(record.addedChangePercent || (quote && quote.changePercent)),
-                size: 'sm',
-                color: getQuoteChangeColor_(record.addedChangePercent || (quote && quote.changePercent)),
-                margin: 'md',
-              },
-            ],
-          },
-          {
-            type: 'separator',
-            margin: 'md',
-          },
-        ].concat(metricBoxes.length > 0 ? [{
-          type: 'box',
-          layout: 'horizontal',
-          margin: 'md',
-          contents: metricBoxes,
-        }] : []).concat([
-          {
-            type: 'text',
-            text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + ' / ' + formatDateDisplayOnly_(record.addedAt),
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-            align: 'end',
-          },
-        ]),
-      },
-      footer: {
-        type: 'box',
-        layout: 'horizontal',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            flex: 1,
-            paddingAll: '10px',
-            backgroundColor: '#E8EDF3',
-            cornerRadius: '999px',
-            justifyContent: 'center',
-            alignItems: 'center',
-            action: {
-              type: 'uri',
-              uri: buildKabutanUrl_(record.ticker),
-            },
-            contents: [
-              {
-                type: 'text',
-                text: toLineText_('🔍' + record.ticker, ''),
-                size: 'sm',
-                weight: 'bold',
-                color: '#4B5563',
-                flex: 0,
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'horizontal',
-            flex: 1,
-            paddingAll: '10px',
-            backgroundColor: '#E8EDF3',
-            cornerRadius: '999px',
-            justifyContent: 'center',
-            alignItems: 'center',
-            action: {
-              type: 'postback',
-              data: 'action=usage_prefill&command=' + encodeURIComponent('#注目一覧'),
-              inputOption: 'openKeyboard',
-              fillInText: '#注目一覧',
-            },
-            contents: [
-              {
-                type: 'text',
-                text: '#注目一覧',
-                size: 'sm',
-                weight: 'bold',
-                color: '#4B5563',
-                flex: 0,
-              },
-            ],
-          },
-        ],
-      },
-    },
-  };
+  return buildWatchQuoteCard_({
+    record: record,
+    quote: quote,
+    watchlistUrl: watchlistUrl,
+    altText: pickerName
+      ? '📌 ' + altLabel + 'を' + pickerName + 'がピックしました'
+      : '📌 ' + altLabel + 'をピックしました',
+    bandText: '📌 注目に入れました・' + formatDateDisplayOnly_(record.addedAt),
+    price: record.addedPrice || (quote && quote.price),
+    changePercent: record.addedChangePercent || (quote && quote.changePercent),
+    sinceAdded: null,
+  });
 }
 
-function buildWatchAlreadyActiveFlexMessage_(record, quote) {
+function buildWatchAlreadyActiveFlexMessage_(record, quote, watchlistUrl) {
+  const currentPrice = quote && quote.price ? quote.price : '';
+  const useMarketCap = !!(quote && quote.marketCap && record.addedMarketCap);
+  const performanceDelta = useMarketCap
+    ? formatSignedPercentDeltaFromBaseScaled_(quote.marketCap, record.addedMarketCap)
+    : formatSignedPercentDeltaFromBase_(currentPrice, record.addedPrice);
+  const deltaColor = useMarketCap
+    ? getQuoteChangeColorFromDelta_(parseComparableScaledNumber_(quote.marketCap), parseComparableScaledNumber_(record.addedMarketCap))
+    : getQuoteChangeColorFromDelta_(currentPrice, record.addedPrice);
+  return buildWatchQuoteCard_({
+    record: record,
+    quote: quote,
+    watchlistUrl: watchlistUrl,
+    altText: record.ticker + ' はすでに注目中です',
+    bandText: '📌 もう注目中です・' + formatDateDisplayOnly_(record.addedAt) + 'から',
+    price: currentPrice || record.addedPrice,
+    changePercent: quote && quote.changePercent ? quote.changePercent : '',
+    sinceAdded: {
+      text: '注目したときから ' + toLineText_(performanceDelta, '-'),
+      color: deltaColor,
+    },
+  });
+}
+
+// 注目のカード（H2）：色の帯（区分・日付と銘柄名）→ 株価（大きく）→ 指標 → 注目した人 → ボタン2つまで
+function buildWatchQuoteCard_(options) {
+  const record = options.record;
+  const quote = options.quote;
   const title = (quote && quote.name) || record.tickerName || ('銘柄コード ' + record.ticker);
   const marketTicker = record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker);
   const marketFlag = buildMarketFlagEmoji_(marketTicker);
   const metricBoxes = buildAvailableMetricBoxes_(quote);
-  const currentPrice = quote && quote.price ? quote.price : '';
-  const currentChangePercent = quote && quote.changePercent ? quote.changePercent : '';
-  const performanceDelta = quote && quote.marketCap && record.addedMarketCap
-    ? formatSignedPercentDeltaFromBaseScaled_(quote.marketCap, record.addedMarketCap)
-    : formatSignedPercentDeltaFromBase_(currentPrice, record.addedPrice);
-  const deltaColor = quote && quote.marketCap && record.addedMarketCap
-    ? getQuoteChangeColorFromDelta_(parseComparableScaledNumber_(quote.marketCap), parseComparableScaledNumber_(record.addedMarketCap))
-    : getQuoteChangeColorFromDelta_(currentPrice, record.addedPrice);
+
+  const bodyContents = [
+    {
+      type: 'box',
+      layout: 'baseline',
+      contents: [
+        {
+          type: 'text',
+          text: formatPrice_(options.price),
+          weight: 'bold',
+          size: 'xxl',
+          flex: 0,
+        },
+        {
+          type: 'text',
+          text: formatPercent_(options.changePercent),
+          size: 'sm',
+          color: getQuoteChangeColor_(options.changePercent),
+          margin: 'md',
+        },
+      ],
+    },
+  ];
+
+  if (options.sinceAdded) {
+    bodyContents.push({
+      type: 'text',
+      text: options.sinceAdded.text,
+      size: 'sm',
+      weight: 'bold',
+      color: options.sinceAdded.color,
+      wrap: true,
+    });
+  }
+
+  if (metricBoxes.length > 0) {
+    bodyContents.push({
+      type: 'separator',
+      margin: 'md',
+    });
+    bodyContents.push({
+      type: 'box',
+      layout: 'horizontal',
+      margin: 'md',
+      contents: metricBoxes,
+    });
+  }
+
+  bodyContents.push({
+    type: 'text',
+    text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + '・' + toLineText_(marketTicker, '-') + '・Google Finance',
+    size: 'xxs',
+    color: '#666666',
+    wrap: true,
+    margin: 'md',
+  });
+
+  const buttons = [];
+  if (options.watchlistUrl) {
+    buttons.push(buildCardButton_('📋 注目一覧を見る', { type: 'uri', uri: options.watchlistUrl }, true));
+  }
+  buttons.push(buildCardButton_('🔍 株探で見る', { type: 'uri', uri: buildKabutanUrl_(record.ticker) }, !options.watchlistUrl));
 
   return {
     type: 'flex',
-    altText: record.ticker + ' はすでに注目中です',
+    altText: options.altText,
     contents: {
       type: 'bubble',
       size: 'mega',
+      header: buildCardBandHeader_(options.bandText, toLineText_((marketFlag ? marketFlag + ' ' : '') + title, '銘柄情報')),
       body: {
         type: 'box',
         layout: 'vertical',
         spacing: 'sm',
-        contents: [
-          {
-            type: 'text',
-            text: 'すでに注目中です',
-            size: 'xs',
-            color: '#666666',
-            weight: 'bold',
-          },
-          {
-            type: 'box',
-            layout: 'horizontal',
-            alignItems: 'flex-start',
-            contents: [
-              {
-                type: 'text',
-                text: toLineText_((marketFlag ? marketFlag + ' ' : '') + title, '銘柄情報'),
-                weight: 'bold',
-                size: 'md',
-                wrap: true,
-                flex: 1,
-              },
-              {
-                type: 'box',
-                layout: 'vertical',
-                flex: 0,
-                spacing: 'xs',
-                contents: [
-                  {
-                    type: 'text',
-                    text: toLineText_(marketTicker, '-'),
-                    size: 'xxs',
-                    color: '#666666',
-                    align: 'end',
-                    wrap: false,
-                  },
-                  {
-                    type: 'text',
-                    text: 'Google Finance',
-                    size: 'xxs',
-                    color: '#98A2B3',
-                    align: 'end',
-                    wrap: false,
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'baseline',
-            margin: 'md',
-            contents: [
-              {
-                type: 'text',
-                text: formatPrice_(currentPrice || record.addedPrice),
-                weight: 'bold',
-                size: 'xl',
-                flex: 0,
-              },
-              {
-                type: 'text',
-                text: formatPercent_(currentChangePercent),
-                size: 'sm',
-                color: getQuoteChangeColor_(currentChangePercent),
-                margin: 'md',
-              },
-            ],
-          },
-          {
-            type: 'text',
-            text: 'ピック時から ' + toLineText_(performanceDelta, '-'),
-            size: 'xs',
-            color: deltaColor,
-            wrap: true,
-          },
-          {
-            type: 'separator',
-            margin: 'md',
-          },
-        ].concat(metricBoxes.length > 0 ? [{
-          type: 'box',
-          layout: 'horizontal',
-          margin: 'md',
-          contents: metricBoxes,
-        }] : []).concat([
-          {
-            type: 'text',
-            text: '注目 ' + toLineText_(record.addedByDisplayName || record.addedByUserId, '-') + ' / ' + formatDateDisplayOnly_(record.addedAt),
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-            align: 'end',
-          },
-        ]),
+        contents: bodyContents,
       },
       footer: {
         type: 'box',
         layout: 'horizontal',
         spacing: 'sm',
-        contents: [
-          {
-            type: 'box',
-            layout: 'horizontal',
-            flex: 1,
-            paddingAll: '10px',
-            backgroundColor: '#E8EDF3',
-            cornerRadius: '999px',
-            justifyContent: 'center',
-            alignItems: 'center',
-            action: {
-              type: 'uri',
-              uri: buildKabutanUrl_(record.ticker),
-            },
-            contents: [
-              {
-                type: 'text',
-                text: toLineText_('🔍' + record.ticker, ''),
-                size: 'sm',
-                weight: 'bold',
-                color: '#4B5563',
-                flex: 0,
-              },
-            ],
-          },
-          {
-            type: 'box',
-            layout: 'horizontal',
-            flex: 1,
-            paddingAll: '10px',
-            backgroundColor: '#E8EDF3',
-            cornerRadius: '999px',
-            justifyContent: 'center',
-            alignItems: 'center',
-            action: {
-              type: 'postback',
-              data: 'action=usage_prefill&command=' + encodeURIComponent('#注目一覧'),
-              inputOption: 'openKeyboard',
-              fillInText: '#注目一覧',
-            },
-            contents: [
-              {
-                type: 'text',
-                text: '#注目一覧',
-                size: 'sm',
-                weight: 'bold',
-                color: '#4B5563',
-                flex: 0,
-              },
-            ],
-          },
-        ],
+        contents: buttons,
       },
+      styles: buildCardBandStyles_(),
     },
   };
 }
@@ -1921,4 +1640,80 @@ function getQuoteChangeColorFromDelta_(currentValue, baseValue) {
     return '#666666';
   }
   return current > base ? '#0B8F55' : '#C0392B';
+}
+
+// ---- カードの共通の形（使い心地の決まり H2・H3） ----
+
+// この画面・ボットの色（LIFF 画面の --ls-accent と同じ）
+const BOT_ACCENT_COLOR_ = '#0F766E';
+const BOT_ACCENT_SUB_TEXT_COLOR_ = '#D2EEE8';
+
+// 色の帯：小さく区分・日付、太く見出し
+function buildCardBandHeader_(smallText, titleText) {
+  return {
+    type: 'box',
+    layout: 'vertical',
+    spacing: 'xs',
+    contents: [
+      {
+        type: 'text',
+        text: toLineText_(smallText, '-'),
+        size: 'xs',
+        color: BOT_ACCENT_SUB_TEXT_COLOR_,
+        wrap: true,
+      },
+      {
+        type: 'text',
+        text: toLineText_(titleText, '-'),
+        size: 'lg',
+        weight: 'bold',
+        color: '#FFFFFF',
+        wrap: true,
+      },
+    ],
+  };
+}
+
+function buildCardBandStyles_() {
+  return {
+    header: {
+      backgroundColor: BOT_ACCENT_COLOR_,
+    },
+  };
+}
+
+// 行動のボタン（1枚に2つまで）。isPrimary はいちばん押してほしいもの
+function buildCardButton_(label, action, isPrimary) {
+  return {
+    type: 'button',
+    style: isPrimary ? 'primary' : 'secondary',
+    color: isPrimary ? BOT_ACCENT_COLOR_ : '#E8EDF3',
+    height: 'sm',
+    action: Object.assign({ label: label }, action),
+  };
+}
+
+// 返事の最後に付ける、次にすること（H3）。グループのみんなに見える
+function buildMainQuickReply_(groupId) {
+  const items = [];
+  const watchlistUrl = groupId ? buildLiffAppLaunchUrl_(groupId, 'watchlist') : '';
+  const performanceUrl = groupId ? buildLiffAppLaunchUrl_(groupId, 'performance') : '';
+  if (watchlistUrl) {
+    items.push({ type: 'action', action: { type: 'uri', label: '📋 注目一覧', uri: watchlistUrl } });
+  }
+  if (performanceUrl) {
+    items.push({ type: 'action', action: { type: 'uri', label: '🏆 注目実績', uri: performanceUrl } });
+  }
+  items.push({
+    type: 'action',
+    action: {
+      type: 'postback',
+      label: '📌 銘柄を注目する',
+      data: 'action=usage_prefill&command=' + encodeURIComponent('#'),
+      inputOption: 'openKeyboard',
+      fillInText: '#',
+    },
+  });
+  items.push({ type: 'action', action: { type: 'message', label: '❓ 使い方', text: '#使い方' } });
+  return { items: items };
 }
