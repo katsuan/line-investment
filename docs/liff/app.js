@@ -2,14 +2,23 @@
   const query = new URLSearchParams(window.location.search);
   const config = window.APP_CONFIG || {};
   const state = {
-    activeView: query.get('view') || 'search',
+    activeView: ['search', 'watchlist', 'performance'].indexOf(query.get('view')) >= 0 ? query.get('view') : 'search',
     groupId: query.get('groupId') || config.debugGroupId || '',
     userId: '',
     apiBaseUrl: query.get('apiBaseUrl') || config.apiBaseUrl || '',
     liffId: query.get('liffId') || config.liffId || '',
     initialized: false,
+    // その場で送れるか（LINE アプリの中で、トークから開いたとき）
+    canSend: false,
+    // 手元で確かめるとき（?debug=1 か config.local.js の debugGroupId）だけ、group・user の目印を出す
+    isDebug: query.get('debug') === '1' || !!config.debugGroupId,
     watchlistPayload: null,
     performancePayload: null,
+    // この画面を開いてから、ネットから取りなおしたか（端末に残した中身は、取りなおすまで仮のもの）
+    fresh: {
+      watchlist: false,
+      performance: false
+    },
     cacheFetchedAt: {
       watchlist: 0,
       performance: 0
@@ -34,7 +43,11 @@
       addedByDisplayName: 120,
       addedAt: 108
     },
-    watchlistFilters: {
+    watchlistFilters: emptyWatchlistFilters()
+  };
+
+  function emptyWatchlistFilters() {
+    return {
       name: '',
       marketTicker: '',
       currentPriceMin: '',
@@ -51,18 +64,25 @@
       volumeMax: '',
       addedByDisplayNames: [],
       addedAt: ''
-    }
-  };
+    };
+  }
 
   const contextBadge = document.getElementById('contextBadge');
   const groupBadge = document.getElementById('groupBadge');
   const userBadge = document.getElementById('userBadge');
   const debugContextRow = document.getElementById('debugContextRow');
+  const outsideNote = document.getElementById('outsideNote');
+  const outsideText = document.getElementById('outsideText');
+  const loginButton = document.getElementById('loginButton');
+  const openInLineLink = document.getElementById('openInLineLink');
   const tickerInput = document.getElementById('tickerInput');
+  const tickerError = document.getElementById('tickerError');
+  const recentWrap = document.getElementById('recentWrap');
+  const recentChips = document.getElementById('recentChips');
   const fetchQuoteButton = document.getElementById('fetchQuoteButton');
   const sendTickerButton = document.getElementById('sendTickerButton');
+  const sendNote = document.getElementById('sendNote');
   const searchStatus = document.getElementById('searchStatus');
-  const watchlistHint = document.getElementById('watchlistHint');
   const searchWatchState = document.getElementById('searchWatchState');
   const quotePreview = document.getElementById('quotePreview');
   const watchlistLoading = document.getElementById('watchlistLoading');
@@ -74,9 +94,33 @@
   const quoteModalStatus = document.getElementById('quoteModalStatus');
   const quoteModalContent = document.getElementById('quoteModalContent');
   const quoteModalClose = document.getElementById('quoteModalClose');
-  const tabs = Array.from(document.querySelectorAll('.tab'));
+  const tabList = document.querySelector('.ls-tabs');
+  const tabs = Array.from(document.querySelectorAll('.ls-tab'));
   const panels = Array.from(document.querySelectorAll('.panel'));
   const reloadButtons = Array.from(document.querySelectorAll('[data-reload-view]'));
+
+  // ---- Q キット（読みこめなかったときも止まらないように） ----
+
+  function kit() {
+    return window.LineShareUI || null;
+  }
+
+  function toast(message, options) {
+    const ui = kit();
+    if (ui && ui.toast) {
+      ui.toast(message, options);
+      return;
+    }
+    searchStatus.textContent = message;
+  }
+
+  function ask(options) {
+    const ui = kit();
+    if (ui && ui.ask) {
+      return ui.ask(options);
+    }
+    return Promise.resolve(options && options.cancel === null);
+  }
 
   function setBadge(el, text) {
     if (el) {
@@ -84,11 +128,16 @@
     }
   }
 
-  function setDebugBadgeVisible(visible) {
-    if (!debugContextRow) {
+  function updateDebugBadges(label) {
+    if (!state.isDebug) {
       return;
     }
-    debugContextRow.classList.toggle('is-hidden', !visible);
+    debugContextRow.hidden = false;
+    if (label) {
+      setBadge(contextBadge, label);
+    }
+    setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
+    setBadge(userBadge, 'user: ' + (state.userId || '-'));
   }
 
   function getDeltaClass(value) {
@@ -170,6 +219,11 @@
   }
 
   function formatDateTimeDisplay(value) {
+    // 「2026-10-22 15:00:00」（日本時間）は、そのまま月日と時刻にする（日付だけで読むと時刻がずれる）
+    const withTime = String(value || '').trim().match(/^(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}):(\d{2})/);
+    if (withTime) {
+      return Number(withTime[2]) + '/' + Number(withTime[3]) + ' ' + withTime[4] + ':' + withTime[5];
+    }
     const parsed = parseDateValue(value);
     if (parsed === null) {
       return String(value || '');
@@ -337,12 +391,13 @@
 
   function renderWatchlistFilterInput(column, items) {
     const filters = state.watchlistFilters;
+    const label = column.label;
 
     if (column.type === 'number') {
       return [
         '<div class="filter-pair">',
-        '<input class="table-filter-input" data-filter-key="' + column.key + 'Min" type="text" inputmode="decimal" placeholder="min" value="' + escapeHtml(filters[column.key + 'Min'] || '') + '">',
-        '<input class="table-filter-input" data-filter-key="' + column.key + 'Max" type="text" inputmode="decimal" placeholder="max" value="' + escapeHtml(filters[column.key + 'Max'] || '') + '">',
+        '<input class="table-filter-input" data-filter-key="' + column.key + 'Min" type="text" inputmode="decimal" enterkeyhint="done" placeholder="以上" aria-label="' + escapeHtml(label) + '（以上）" value="' + escapeHtml(filters[column.key + 'Min'] || '') + '">',
+        '<input class="table-filter-input" data-filter-key="' + column.key + 'Max" type="text" inputmode="decimal" enterkeyhint="done" placeholder="以下" aria-label="' + escapeHtml(label) + '（以下）" value="' + escapeHtml(filters[column.key + 'Max'] || '') + '">',
         '</div>'
       ].join('');
     }
@@ -350,7 +405,7 @@
     if (column.key === 'addedByDisplayName') {
       const options = getWatchlistAddedByOptions(items);
       return [
-        '<select class="table-filter-select" data-filter-key="addedByDisplayNames" multiple size="' + escapeHtml(String(Math.min(Math.max(options.length, 2), 4))) + '">',
+        '<select class="table-filter-select" data-filter-key="addedByDisplayNames" multiple aria-label="注目した人でしぼる" size="' + escapeHtml(String(Math.min(Math.max(options.length, 2), 4))) + '">',
         options.map(function(name) {
           const selected = filters.addedByDisplayNames.indexOf(name) >= 0 ? ' selected' : '';
           return '<option value="' + escapeHtml(name) + '"' + selected + '>' + escapeHtml(name) + '</option>';
@@ -359,7 +414,15 @@
       ].join('');
     }
 
-    return '<input class="table-filter-input" data-filter-key="' + column.key + '" type="text" placeholder="filter" value="' + escapeHtml(filters[column.key] || '') + '">';
+    return '<input class="table-filter-input" data-filter-key="' + column.key + '" type="text" enterkeyhint="done" placeholder="しぼる" aria-label="' + escapeHtml(label) + 'でしぼる" value="' + escapeHtml(filters[column.key] || '') + '">';
+  }
+
+  function hasWatchlistFilters() {
+    const filters = state.watchlistFilters;
+    return Object.keys(filters).some(function(key) {
+      const value = filters[key];
+      return Array.isArray(value) ? value.length > 0 : !!value;
+    });
   }
 
   function renderWatchlistTable(items) {
@@ -367,13 +430,13 @@
     const sortedItems = getWatchlistSortedItems(filteredItems);
     const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
     const latestCachedAt = state.watchlistPayload && state.watchlistPayload.latestCachedAt
-      ? 'キャッシュ ' + formatDateTimeDisplay(state.watchlistPayload.latestCachedAt)
+      ? '株価は ' + formatDateTimeDisplay(state.watchlistPayload.latestCachedAt) + ' ごろ'
       : '';
 
     return [
       '<div class="watchlist-toolbar">',
-      '<div class="watchlist-summary">表示 ' + escapeHtml(String(sortedItems.length)) + ' / 全' + escapeHtml(String(items.length)) + '件' + (latestCachedAt ? ' ・ ' + escapeHtml(latestCachedAt) : '') + '</div>',
-      '<button class="ghost-button compact" data-watchlist-reset type="button">条件クリア</button>',
+      '<p class="watchlist-summary">' + escapeHtml(String(sortedItems.length)) + ' / ' + escapeHtml(String(items.length)) + '件' + (latestCachedAt ? '・' + escapeHtml(latestCachedAt) : '') + '</p>',
+      hasWatchlistFilters() ? '<button class="ls-button is-small" data-watchlist-reset type="button">✕ しぼりこみを解除</button>' : '',
       '</div>',
       '<div class="watchlist-table-wrap">',
       '<table class="watchlist-table">',
@@ -386,10 +449,11 @@
       '<tr>',
       watchlistColumns.map(function(column) {
         const isActive = state.watchlistSort.key === column.key;
-        return '<th class="watchlist-head-cell" data-column-key="' + column.key + '">' +
+        const ariaSort = isActive ? (state.watchlistSort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
+        return '<th class="watchlist-head-cell" data-column-key="' + column.key + '" aria-sort="' + ariaSort + '">' +
           '<button class="sort-button' + (isActive ? ' is-active' : '') + '" data-sort-key="' + column.key + '" type="button">' +
           escapeHtml(column.label) + (isActive ? ' ' + sortMarker : '') + '</button>' +
-          '<span class="column-resizer" data-resize-key="' + column.key + '"></span>' +
+          '<span class="column-resizer" data-resize-key="' + column.key + '" aria-hidden="true"></span>' +
           '</th>';
       }).join(''),
       '</tr>',
@@ -402,11 +466,11 @@
       '<tbody>',
       (sortedItems.length === 0 ? [
         '<tr>',
-        '<td class="table-empty" colspan="' + escapeHtml(String(watchlistColumns.length)) + '">条件に一致する注目銘柄はありません。</td>',
+        '<td class="table-empty" colspan="' + escapeHtml(String(watchlistColumns.length)) + '">この条件の銘柄はありません。</td>',
         '</tr>'
       ].join('') : sortedItems.map(function(item) {
         return [
-          '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '">',
+          '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '" tabindex="0">',
           '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
           '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
           '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
@@ -422,8 +486,7 @@
       }).join('')),
       '</tbody>',
       '</table>',
-      '</div>',
-      '<p class="status-text">タップで列ソート、入力で絞り込み、見出し右端のドラッグで列幅調整できます。</p>'
+      '</div>'
     ].join('');
   }
 
@@ -431,29 +494,31 @@
     if (pictureUrl) {
       return '<div class="avatar"><img src="' + escapeHtml(pictureUrl) + '" alt=""></div>';
     }
-    return '<div class="avatar">' + escapeHtml(String(displayName || '-').slice(0, 1)) + '</div>';
+    return '<div class="avatar" aria-hidden="true">' + escapeHtml(String(displayName || '-').slice(0, 1)) + '</div>';
   }
+
+  // ---- タブ ----
 
   function setActiveView(view, options) {
     const isSameView = state.activeView === view;
     state.activeView = view;
-    tabs.forEach((tab) => {
-      tab.classList.toggle('is-active', tab.dataset.view === view);
+    tabs.forEach(function(tab) {
+      tab.setAttribute('aria-selected', tab.dataset.view === view ? 'true' : 'false');
     });
-    panels.forEach((panel) => {
-      panel.classList.toggle('is-active', panel.dataset.panel === view);
+    panels.forEach(function(panel) {
+      panel.hidden = panel.dataset.panel !== view;
     });
 
     if (isSameView && (!options || !options.forceReload)) {
       return;
     }
 
-    if (!options || !options.silent) {
-      if (view === 'watchlist' || view === 'performance') {
-        loadView(view);
-      }
+    if (view === 'watchlist' || view === 'performance') {
+      loadView(view);
     }
   }
+
+  // ---- しらべる・送る ----
 
   function normalizeTickerInput() {
     return normalizeTickerText(tickerInput.value || '');
@@ -468,100 +533,213 @@
 
   function updateSearchWatchState() {
     const ticker = normalizeTickerInput();
-    if (!ticker) {
+    if (ticker) {
+      tickerError.hidden = true;
+    }
+    updateSendNote();
+    renderRecentChips();
+
+    if (!ticker || !state.watchlistPayload) {
+      searchWatchState.hidden = true;
       searchWatchState.textContent = '';
       return;
     }
 
-    if (!state.watchlistPayload) {
-      searchWatchState.textContent = '注目一覧の取得完了後に、利用中かどうかをここへ表示します。';
-      return;
-    }
-
     const watchItem = findWatchItemByTicker(ticker);
+    searchWatchState.hidden = false;
     if (watchItem) {
-      searchWatchState.textContent = ticker + ' は注目中です。' +
-        (watchItem.addedByDisplayName ? ' 注目 ' + watchItem.addedByDisplayName + ' / ' + watchItem.addedAt : '');
+      searchWatchState.textContent = '📌 ' + ticker + ' は注目中です' +
+        (watchItem.addedByDisplayName ? '（' + watchItem.addedByDisplayName + (watchItem.addedAt ? '・' + watchItem.addedAt : '') + '）' : '');
       return;
     }
+    searchWatchState.textContent = ticker + ' はまだ注目されていません。送ると注目に入ります。';
+  }
 
-    searchWatchState.textContent = ticker + ' は現在の注目一覧には入っていません。';
+  // 送る前に、何が起きるかを短く（F2・B6）
+  function updateSendNote() {
+    const ticker = normalizeTickerInput();
+    if (!state.canSend) {
+      sendTickerButton.textContent = '📋 コピーする';
+      sendNote.textContent = state.initialized || state.isDebug
+        ? 'ここからは送れません。コピーして、グループのトークに貼ってね。'
+        : '';
+      return;
+    }
+    sendTickerButton.textContent = '💬 グループに送る';
+    sendNote.textContent = ticker ? '「#' + ticker + '」をこのトークに送ります。ボットが株価を返します。' : '';
+  }
+
+  // 注目中の銘柄を、押すだけで入るボタンに（新しい順に8つ）
+  function renderRecentChips() {
+    const items = ((state.watchlistPayload && state.watchlistPayload.items) || []).slice();
+    if (items.length === 0) {
+      recentWrap.hidden = true;
+      recentChips.innerHTML = '';
+      return;
+    }
+    items.sort(function(a, b) {
+      return (parseDateValue(b.addedAt) || 0) - (parseDateValue(a.addedAt) || 0);
+    });
+    const current = normalizeTickerInput();
+    recentWrap.hidden = false;
+    recentChips.innerHTML = items.slice(0, 8).map(function(item) {
+      const ticker = String(item.ticker || '');
+      const name = String(item.name || '');
+      const label = ticker + (name && name !== ticker ? ' ' + (name.length > 8 ? name.slice(0, 8) + '…' : name) : '');
+      return '<button class="ls-chip is-small" type="button" data-pick-ticker="' + escapeHtml(ticker) + '" aria-pressed="' + (current === ticker.toUpperCase() ? 'true' : 'false') + '">' + escapeHtml(label) + '</button>';
+    }).join('');
+  }
+
+  function requireTicker() {
+    const ticker = normalizeTickerInput();
+    if (!ticker) {
+      tickerError.hidden = false;
+      tickerInput.focus();
+      return '';
+    }
+    tickerError.hidden = true;
+    return ticker;
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (error) {
+        // 下の「長押しでコピー」へ
+      }
+    }
+    return false;
   }
 
   async function sendTickerCommand() {
-    const ticker = normalizeTickerInput();
+    const ticker = requireTicker();
     if (!ticker) {
-      searchStatus.textContent = '銘柄コードを入力してください。';
       return;
     }
 
     const command = '#' + ticker;
-    if (window.liff && typeof window.liff.sendMessages === 'function') {
+    if (state.canSend && window.liff && typeof window.liff.sendMessages === 'function') {
+      sendTickerButton.disabled = true;
+      sendTickerButton.textContent = '送っています…';
       try {
         await window.liff.sendMessages([{ type: 'text', text: command }]);
-        searchStatus.textContent = command + ' をチャットへ送信しました。';
-        if (window.liff.closeWindow) {
-          setTimeout(function() {
-            window.liff.closeWindow();
-          }, 700);
-        }
-        return;
       } catch (error) {
-        searchStatus.textContent = '送信に失敗したため、手動で送る用に表示します。';
+        console.error(error);
+        sendTickerButton.disabled = false;
+        updateSendNote();
+        toast('送れませんでした。もう一度ためしてね。');
+        return;
       }
+      sendTickerButton.disabled = false;
+      updateSendNote();
+      // すぐ閉じない（F3）。トークに戻るか、続けてしらべるかを選べる
+      const close = await ask({
+        title: command + ' を送りました',
+        text: 'ボットの返事はトークで見られます。',
+        ok: '閉じてトークを見る',
+        cancel: '続けてしらべる'
+      });
+      if (close && window.liff && window.liff.closeWindow) {
+        window.liff.closeWindow();
+      }
+      return;
     }
 
-    tickerInput.value = command;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(command);
-        searchStatus.textContent = 'この環境では送信できません。' + command + ' をコピーして入力欄にも入れました。';
-        return;
-      } catch (error) {
-        // Continue to the plain fallback.
-      }
+    if (await copyText(command)) {
+      toast(command + ' をコピーしました。トークに貼って送ってね。');
+      return;
     }
-    searchStatus.textContent = 'この環境では送信できません。' + command + ' を入力欄に入れました。';
+    await ask({ title: '長押ししてコピーしてね', input: command, readonly: true, ok: '閉じる', cancel: null });
+  }
+
+  // ---- LINE とのつなぎ ----
+
+  function buildOpenInLineUrl() {
+    if (!state.liffId) {
+      return '';
+    }
+    const params = new URLSearchParams();
+    if (state.groupId) {
+      params.set('groupId', state.groupId);
+    }
+    params.set('view', state.activeView);
+    return 'https://liff.line.me/' + encodeURIComponent(state.liffId) + '?' + params.toString();
+  }
+
+  // LINE の外で開いたとき・グループから開いていないとき。エラーにせず、できることを出す（B6）
+  function showOutsideNote(text, options) {
+    const settings = options || {};
+    outsideText.textContent = text;
+    loginButton.hidden = !settings.login;
+    const lineUrl = settings.openInLine ? buildOpenInLineUrl() : '';
+    openInLineLink.hidden = !lineUrl;
+    if (lineUrl) {
+      openInLineLink.href = lineUrl;
+    }
+    outsideNote.hidden = false;
+  }
+
+  function useLocalDebugUser(label) {
+    if (!config.debugUserId) {
+      return false;
+    }
+    state.userId = config.debugUserId;
+    state.isDebug = true;
+    updateDebugBadges(label);
+    return true;
   }
 
   async function initializeLiff() {
     if (!window.liff || !state.liffId) {
-      setDebugBadgeVisible(true);
-      state.userId = config.debugUserId || '';
-      setBadge(contextBadge, state.liffId ? 'ローカルデバッグ' : 'ID未設定');
-      setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
-      setBadge(userBadge, 'user: ' + (state.userId || '-'));
-      searchStatus.textContent = 'ローカル表示中です。debugGroupId / debugUserId でデータ取得し、送信はコピーへフォールバックします。';
+      if (!useLocalDebugUser('LINE なし')) {
+        showOutsideNote('うまく開けませんでした。LINE アプリで開きなおしてね。', { openInLine: true });
+      }
       return;
     }
 
     try {
       await window.liff.init({ liffId: state.liffId });
-      setDebugBadgeVisible(false);
-      const context = window.liff.getContext ? window.liff.getContext() : null;
-      const profile = window.liff.getProfile ? await window.liff.getProfile() : null;
-      state.userId = (profile && profile.userId) || (context && context.userId) || '';
-      state.initialized = true;
-      setBadge(contextBadge, 'debug ' + ((context && context.type) || 'unknown'));
-      setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
-      setBadge(userBadge, 'user: ' + (state.userId || '-'));
     } catch (error) {
-      setDebugBadgeVisible(true);
-      state.userId = config.debugUserId || '';
-      setBadge(contextBadge, '初期化失敗');
-      setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
-      setBadge(userBadge, 'user: ' + (state.userId || '-'));
-      searchStatus.textContent = '起動に失敗したため、debugGroupId / debugUserId を使うデバッグ表示へ切り替えました。';
-    }
-  }
-
-  function setLoadingState(el, message, isBusy) {
-    if (!el) {
+      console.error(error);
+      if (!useLocalDebugUser('LINE につながらない')) {
+        showOutsideNote('うまく開けませんでした。LINE アプリで開きなおしてね。', { openInLine: true });
+      }
       return;
     }
-    el.textContent = message;
-    el.classList.toggle('is-idle', !isBusy);
-    el.classList.toggle('loading-state', !!isBusy);
+
+    state.initialized = true;
+    const inClient = window.liff.isInClient ? window.liff.isInClient() : false;
+    const loggedIn = window.liff.isLoggedIn ? window.liff.isLoggedIn() : inClient;
+    if (!inClient && !loggedIn) {
+      if (!useLocalDebugUser('LINE の外')) {
+        showOutsideNote('LINE の外で開いています。注目一覧を見るには、LINE でログインしてね。', { login: true, openInLine: true });
+      }
+      return;
+    }
+
+    const context = window.liff.getContext ? window.liff.getContext() : null;
+    try {
+      const profile = window.liff.getProfile ? await window.liff.getProfile() : null;
+      state.userId = (profile && profile.userId) || (context && context.userId) || '';
+    } catch (error) {
+      console.error(error);
+      state.userId = (context && context.userId) || '';
+    }
+    state.canSend = inClient && !!context && ['group', 'room', 'utou'].indexOf(context.type) >= 0;
+    if (!inClient) {
+      showOutsideNote('LINE の外で開いています。見ることはできます。グループに送るときは、LINE アプリで開いてね。', { openInLine: true });
+    }
+    updateDebugBadges('LINE ' + ((context && context.type) || '-'));
+  }
+
+  // ---- 読みこみ ----
+
+  function setLoadingText(el, message) {
+    if (el) {
+      el.textContent = message || '';
+    }
   }
 
   function getViewPayload(view) {
@@ -576,29 +754,88 @@
     state.performancePayload = payload;
   }
 
+  // 前に開いたときの中身を、この端末に残す（次に開いたとき、すぐ出すため。B1）
+  function cacheKey(view) {
+    return 'line-investment:v1:' + state.groupId + ':' + view;
+  }
+
+  function readCachedView(view) {
+    if (!state.groupId) {
+      return null;
+    }
+    try {
+      const raw = localStorage.getItem(cacheKey(view));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.payload ? parsed : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeCachedView(view, payload) {
+    if (!state.groupId) {
+      return;
+    }
+    try {
+      localStorage.setItem(cacheKey(view), JSON.stringify({ savedAt: Date.now(), payload: payload }));
+    } catch (error) {
+      // 残せなくても表示は続ける
+    }
+  }
+
+  function restoreCachedViews() {
+    ['watchlist', 'performance'].forEach(function(view) {
+      const cached = readCachedView(view);
+      if (cached) {
+        setViewPayload(view, cached.payload);
+        state.cacheFetchedAt[view] = cached.savedAt || 0;
+      }
+    });
+  }
+
   function renderViewFromPayload(view, payload) {
     if (view === 'watchlist') {
       renderWatchlist(payload);
-      setLoadingState(watchlistHint, '注目一覧をローカル保持しています。更新時のみ再取得します。', false);
       updateSearchWatchState();
       return;
     }
     renderPerformance(payload);
   }
 
-  async function fetchJson(view) {
-    return fetchJsonWithParams(view, {});
+  function renderSkeleton(contentEl) {
+    contentEl.innerHTML = '<div class="skeleton-list" aria-hidden="true">' +
+      '<span class="ls-skeleton"></span><span class="ls-skeleton"></span><span class="ls-skeleton"></span><span class="ls-skeleton"></span>' +
+      '</div>';
+  }
+
+  function renderEmptyNote(contentEl, icon, text) {
+    contentEl.innerHTML = '<div class="ls-empty"><span class="ls-empty-icon" aria-hidden="true">' + escapeHtml(icon) + '</span>' + escapeHtml(text) + '</div>';
+  }
+
+  function canFetch() {
+    return !!(state.apiBaseUrl && state.groupId && state.userId);
+  }
+
+  function makeLoadError(kind) {
+    const error = new Error(kind);
+    error.kind = kind;
+    return error;
+  }
+
+  // 失敗のときに出す言葉（仕組みの言葉やエラーの中身は出さない。E2）
+  function describeLoadError(error, hasCache) {
+    if (error && error.kind === 'denied') {
+      return '見られるのは、ルールを確認した人だけです。トークのルールのカードで「確認しました」を押してね。';
+    }
+    if (hasCache) {
+      return '新しくできませんでした。前に開いたときの内容を出しています。電波のよいところで「↻ 新しくする」を押してね。';
+    }
+    return '読みこめませんでした。電波のよいところで「↻ 新しくする」を押してね。';
   }
 
   async function fetchJsonWithParams(view, extraParams) {
-    if (!state.apiBaseUrl) {
-      throw new Error('apiBaseUrl is missing');
-    }
-    if (!state.groupId) {
-      throw new Error('groupId is missing');
-    }
-    if (!state.userId) {
-      throw new Error('userId is missing');
+    if (!canFetch()) {
+      throw makeLoadError('nocontext');
     }
 
     const url = new URL(state.apiBaseUrl, window.location.href);
@@ -612,12 +849,34 @@
       }
     });
 
-    const response = await fetch(url.toString(), { method: 'GET' });
-    const data = await response.json();
-    if (!data.ok) {
-      throw new Error(data.error || 'request failed');
+    let data = null;
+    try {
+      const response = await fetch(url.toString(), { method: 'GET' });
+      data = await response.json();
+    } catch (error) {
+      console.error(error);
+      throw makeLoadError('network');
+    }
+    if (!data || !data.ok) {
+      // くわしい中身は開発者ツールにだけ
+      console.error('liff_data failed', data && data.error);
+      throw makeLoadError(data && data.error === 'access denied' ? 'denied' : 'server');
     }
     return data.data;
+  }
+
+  // 3秒をこえたら、経過秒数と理由を出す（B2）
+  function startSlowProgress(el, label) {
+    const ui = kit();
+    if (!ui || !ui.progress) {
+      return function() {};
+    }
+    const startedAt = Date.now();
+    return ui.progress(label, function(text) {
+      if (Date.now() - startedAt >= 3000) {
+        setLoadingText(el, text);
+      }
+    }, { slowAfter: 8, slowNote: '株価を取りに行っています。少し時間がかかることがあります。' });
   }
 
   function renderQuotePreview(payload, targetEl) {
@@ -628,48 +887,52 @@
     }
 
     const watchStateText = payload.isWatched
-      ? '注目中: ' + escapeHtml(payload.watchedBy || '-') + ' / ' + escapeHtml(payload.watchedAt || '-')
-      : '未注目';
+      ? '📌 注目中：' + escapeHtml(payload.watchedBy || '-') + '・' + escapeHtml(payload.watchedAt || '-')
+      : 'まだ注目されていません';
 
     container.innerHTML = [
       '<article class="data-card">',
       '<div class="card-head">',
       '<div class="title-block">',
       '<h3>' + escapeHtml((payload.marketFlag ? payload.marketFlag + ' ' : '') + (payload.name || payload.ticker)) + '</h3>',
-      '<p>' + escapeHtml(payload.marketTicker || '-') + ' / ' + escapeHtml(payload.source || '') + '</p>',
+      '<p>' + escapeHtml(payload.marketTicker || '-') + (payload.source ? '・' + escapeHtml(payload.source) : '') + '</p>',
       '</div>',
-      '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noreferrer">🔍 ' + escapeHtml(payload.ticker || '-') + '</a>',
+      '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noreferrer">🔍 株探で見る</a>',
       '</div>',
       '<div class="stat-row">',
-      '<div class="metric-block"><h4 class="mono">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>' + escapeHtml(payload.changePercent || '-') + '</p></div>',
-      '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(payload.performanceDelta || '') + '">' + escapeHtml(payload.performanceDelta || '-') + '</h4><p>注目時比</p></div>',
+      '<div class="metric-block"><h4 class="mono big-price">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>いまの株価・前日比 <span class="delta ' + getDeltaClass(payload.changePercent || '') + '">' + escapeHtml(payload.changePercent || '-') + '</span></p></div>',
+      payload.isWatched
+        ? '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(payload.performanceDelta || '') + '">' + escapeHtml(payload.performanceDelta || '-') + '</h4><p>注目したときから</p></div>'
+        : '',
       '</div>',
       '<div class="record-row">',
       '<div class="metric-block"><p>時価総額</p><h4 class="mono">' + escapeHtml(payload.marketCap || '-') + '</h4></div>',
-      '<div class="metric-block"><p>PER / 出来高</p><h4 class="mono">' + escapeHtml(payload.per || '-') + ' / ' + escapeHtml(String(payload.volume || '-')) + '</h4></div>',
+      '<div class="metric-block"><p>PER・出来高</p><h4 class="mono">' + escapeHtml(payload.per || '-') + '・' + escapeHtml(String(payload.volume || '-')) + '</h4></div>',
       '</div>',
-      '<div class="record-row"><span>' + watchStateText + '</span><span>注目時価格 ' + escapeHtml(payload.addedPrice || '-') + '</span></div>',
+      '<div class="record-row"><span>' + watchStateText + '</span>' + (payload.isWatched ? '<span>注目したときの株価 ' + escapeHtml(payload.addedPrice || '-') + '</span>' : '') + '</div>',
       '</article>'
     ].join('');
   }
 
+  // ---- 銘柄のシート ----
+
+  let quoteSheetReturnFocus = null;
+
   function openQuoteModal(title) {
-    if (!quoteModal) {
-      return;
-    }
-    quoteModal.classList.remove('is-hidden');
-    quoteModal.setAttribute('aria-hidden', 'false');
-    if (quoteModalTitle) {
-      quoteModalTitle.textContent = title || '銘柄情報';
-    }
+    quoteSheetReturnFocus = document.activeElement;
+    quoteModalTitle.textContent = title || '銘柄の情報';
+    quoteModal.hidden = false;
+    quoteModalClose.focus();
   }
 
   function closeQuoteModal() {
-    if (!quoteModal) {
+    if (quoteModal.hidden) {
       return;
     }
-    quoteModal.classList.add('is-hidden');
-    quoteModal.setAttribute('aria-hidden', 'true');
+    quoteModal.hidden = true;
+    if (quoteSheetReturnFocus && quoteSheetReturnFocus.focus) {
+      quoteSheetReturnFocus.focus();
+    }
   }
 
   async function fetchQuoteByTicker(ticker, options) {
@@ -679,12 +942,18 @@
       return null;
     }
 
-    if (settings.statusEl) {
-      setLoadingState(settings.statusEl, normalizedTicker + ' の株情報を取得中です。', true);
+    if (!canFetch()) {
+      setLoadingText(settings.statusEl, state.groupId
+        ? '株価を見るには、LINE で開いてね。'
+        : 'グループのトークから開くと、株価を見られます。');
+      return null;
     }
+
+    setLoadingText(settings.statusEl, normalizedTicker + ' の株価を取りに行っています…');
     if (settings.targetEl) {
-      settings.targetEl.innerHTML = '';
+      renderSkeleton(settings.targetEl);
     }
+    const stopProgress = startSlowProgress(settings.statusEl, normalizedTicker + ' の株価を取りに行っています');
 
     try {
       const data = await fetchJsonWithParams('quote', { ticker: normalizedTicker });
@@ -692,38 +961,45 @@
       if (settings.titleEl) {
         settings.titleEl.textContent = (data.marketFlag ? data.marketFlag + ' ' : '') + (data.name || normalizedTicker);
       }
-      if (settings.statusEl) {
-        setLoadingState(settings.statusEl, normalizedTicker + ' の株情報を更新しました。', false);
-      }
+      setLoadingText(settings.statusEl, '');
       return data;
     } catch (error) {
-      if (settings.statusEl) {
-        setLoadingState(settings.statusEl, '株情報の取得に失敗しました。時間をおいてもう一度お試しください。', false);
+      if (settings.targetEl) {
+        settings.targetEl.innerHTML = '';
       }
-      console.error(error);
+      setLoadingText(settings.statusEl, error.kind === 'denied'
+        ? describeLoadError(error, false)
+        : '株価を取れませんでした。少し待って、もう一度ためしてね。');
       return null;
+    } finally {
+      stopProgress();
     }
   }
 
   async function fetchQuotePreview() {
-    const ticker = normalizeTickerInput();
+    const ticker = requireTicker();
     if (!ticker) {
-      setLoadingState(searchStatus, '銘柄コードを入力してください。', false);
       return;
     }
-
-    await fetchQuoteByTicker(ticker, {
-      statusEl: searchStatus,
-      targetEl: quotePreview
-    });
+    fetchQuoteButton.disabled = true;
+    try {
+      await fetchQuoteByTicker(ticker, {
+        statusEl: searchStatus,
+        targetEl: quotePreview
+      });
+    } finally {
+      fetchQuoteButton.disabled = false;
+    }
   }
+
+  // ---- 注目一覧・実績 ----
 
   function renderWatchlist(payload) {
     const items = (payload && payload.items) || [];
     const existingWrap = watchlistContent.querySelector('.watchlist-table-wrap');
     const previousScrollLeft = existingWrap ? existingWrap.scrollLeft : 0;
     if (items.length === 0) {
-      watchlistContent.innerHTML = '<p class="empty-state">注目銘柄はまだありません。</p>';
+      renderEmptyNote(watchlistContent, '📭', 'まだ注目銘柄はありません。\n「🔍 しらべる」から #コード を送ると、注目に入ります。');
       return;
     }
     watchlistContent.innerHTML = renderWatchlistTable(items);
@@ -733,19 +1009,23 @@
     }
   }
 
+  function formatAverage(value) {
+    return value === null || typeof value === 'undefined'
+      ? '-'
+      : ((value > 0 ? '+' : '') + Number(value).toFixed(2) + '%');
+  }
+
   function renderRankingRows(ranking) {
     return ranking.map(function(row) {
-      const average = row.averageDelta === null || typeof row.averageDelta === 'undefined'
-        ? '-'
-        : ((row.averageDelta > 0 ? '+' : '') + Number(row.averageDelta).toFixed(2) + '%');
-      const medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : '#' + row.rank;
+      const average = formatAverage(row.averageDelta);
+      const medal = row.rank === 1 ? '🥇' : row.rank === 2 ? '🥈' : row.rank === 3 ? '🥉' : row.rank + '位';
       return [
         '<div class="ranking-row">',
         '<div class="member-cell">',
         renderAvatar(row.pictureUrl, row.displayName),
-        '<div><strong>' + escapeHtml(medal + ' ' + (row.displayName || '不明')) + '</strong></div>',
+        '<strong>' + escapeHtml(medal + ' ' + (row.displayName || '不明')) + '</strong>',
         '</div>',
-        '<div class="mono">' + escapeHtml(String(row.pickCount || 0)) + '</div>',
+        '<div class="mono">' + escapeHtml(String(row.pickCount || 0)) + '<small>件</small></div>',
         '<div class="mono delta ' + getDeltaClass(average) + '">' + escapeHtml(average) + '</div>',
         '</div>'
       ].join('');
@@ -756,9 +1036,7 @@
     if (!spotlight) {
       return '';
     }
-    const average = spotlight.averageDelta === null || typeof spotlight.averageDelta === 'undefined'
-      ? '-'
-      : ((spotlight.averageDelta > 0 ? '+' : '') + Number(spotlight.averageDelta).toFixed(2) + '%');
+    const average = formatAverage(spotlight.averageDelta);
     const items = (spotlight.items || []).map(function(item) {
       return [
         '<article class="data-card">',
@@ -773,7 +1051,7 @@
         '<strong class="mono">' + escapeHtml(item.currentPrice || '-') + '</strong>',
         '<strong class="mono delta ' + getDeltaClass(item.currentDeltaText) + '">' + escapeHtml(item.currentDeltaText || '-') + '</strong>',
         '</div>',
-        '<div class="record-row"><span>注目時 ' + escapeHtml(item.addedPrice || '-') + '</span><span>日付 ' + escapeHtml(item.addedAt || '-') + '</span></div>',
+        '<div class="record-row"><span>注目したとき ' + escapeHtml(item.addedPrice || '-') + '</span><span>' + escapeHtml(item.addedAt || '-') + '</span></div>',
         '</article>'
       ].join('');
     }).join('');
@@ -784,7 +1062,7 @@
       renderAvatar(spotlight.pictureUrl, spotlight.displayName),
       '<div>',
       '<strong>' + escapeHtml(spotlight.title || spotlight.displayName || '注目カード') + '</strong>',
-      '<p class="status-text">' + escapeHtml(String(spotlight.pickCount || 0) + '件 ' + average + '（平均騰落率）') + '</p>',
+      '<p class="ls-hint">' + escapeHtml(String(spotlight.pickCount || 0) + '件・平均 ' + average) + '</p>',
       '</div>',
       '</div>',
       '<div class="card-list">' + items + '</div>',
@@ -794,14 +1072,25 @@
 
   function renderPerformance(payload) {
     const ranking = (payload && payload.ranking) || [];
+    if (ranking.length === 0) {
+      renderEmptyNote(performanceContent, '🏆', 'まだ実績はありません。\n注目銘柄が入ると、ここに順位が出ます。');
+      return;
+    }
     performanceContent.innerHTML = [
       '<section class="data-card">',
-      '<div class="section-head"><h3>ランキング</h3><p>集計対象 ' + escapeHtml(String((payload && payload.totalCount) || 0)) + '件</p></div>',
-      renderRankingRows(ranking),
+      '<div class="ranking-head"><h3>ランキング</h3><p class="ls-hint">注目 ' + escapeHtml(String((payload && payload.totalCount) || 0)) + '件の平均騰落率</p></div>',
+      '<div>' + renderRankingRows(ranking) + '</div>',
       '</section>',
       renderSpotlightCard(payload && payload.topSpotlight),
       renderSpotlightCard(payload && payload.randomSpotlight)
     ].join('');
+  }
+
+  function formatSavedTime(ms) {
+    if (!ms) {
+      return '';
+    }
+    return new Date(ms).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
   async function loadView(view, options) {
@@ -810,37 +1099,72 @@
     const contentEl = view === 'watchlist' ? watchlistContent : performanceContent;
     const cachedPayload = getViewPayload(view);
 
-    if (!forceRefresh && cachedPayload) {
+    if (cachedPayload) {
       renderViewFromPayload(view, cachedPayload);
-      setLoadingState(loadingEl, 'ローカル表示中: ' + new Date(state.cacheFetchedAt[view]).toLocaleTimeString('ja-JP'), false);
+    }
+
+    if (!forceRefresh && cachedPayload && state.fresh[view]) {
+      setLoadingText(loadingEl, '');
+      return;
+    }
+
+    if (!canFetch() && !state.initDone) {
+      // LINE の準備がすむまでは、前の中身か読みこみ中の箱
+      if (cachedPayload) {
+        setLoadingText(loadingEl, '前に開いたときの内容です。新しくしています…');
+      } else {
+        renderSkeleton(contentEl);
+      }
+      return;
+    }
+
+    if (!canFetch()) {
+      if (cachedPayload) {
+        setLoadingText(loadingEl, '前に開いたときの内容です（' + formatSavedTime(state.cacheFetchedAt[view]) + '）。');
+        return;
+      }
+      setLoadingText(loadingEl, '');
+      renderEmptyNote(contentEl, '💬', state.groupId
+        ? '見るには、LINE で開いてね。'
+        : 'グループのトークから開いてね。\nトークで「#注目一覧」と送ると、開くボタンが届きます。');
       return;
     }
 
     if (state.inFlightLoads[view] && !forceRefresh) {
-      setLoadingState(loadingEl, '読み込み中...', true);
       return state.inFlightLoads[view];
     }
 
-    setLoadingState(loadingEl, forceRefresh ? '更新中...' : '読み込み中...', true);
+    setLoadingText(loadingEl, cachedPayload
+      ? (state.fresh[view] ? '新しくしています…' : '前に開いたときの内容です。新しくしています…')
+      : '読みこんでいます…');
     if (!cachedPayload) {
-      contentEl.innerHTML = '';
+      renderSkeleton(contentEl);
     }
+    const stopProgress = startSlowProgress(loadingEl, cachedPayload ? '新しくしています' : '読みこんでいます');
 
     const request = (async function() {
       try {
         const data = await fetchJsonWithParams(view, forceRefresh ? { refresh: '1' } : {});
         setViewPayload(view, data);
+        state.fresh[view] = true;
         state.cacheFetchedAt[view] = Date.now();
+        writeCachedView(view, data);
+        stopProgress();
         renderViewFromPayload(view, data);
-        setLoadingState(loadingEl, '更新済み: ' + new Date().toLocaleTimeString('ja-JP'), false);
+        setLoadingText(loadingEl, '');
+        if (forceRefresh) {
+          toast(view === 'watchlist' ? '注目一覧を新しくしました' : '実績を新しくしました');
+        }
       } catch (error) {
-        console.error(error);
-        if (cachedPayload) {
-          renderViewFromPayload(view, cachedPayload);
-          setLoadingState(loadingEl, '更新失敗: ローカル表示を継続', false);
+        stopProgress();
+        const latest = getViewPayload(view);
+        if (latest && error.kind !== 'denied') {
+          renderViewFromPayload(view, latest);
+          setLoadingText(loadingEl, describeLoadError(error, true));
           return;
         }
-        setLoadingState(loadingEl, '取得に失敗しました。時間をおいてもう一度お試しください。', false);
+        setLoadingText(loadingEl, '');
+        renderEmptyNote(contentEl, error.kind === 'denied' ? '🔒' : '📶', describeLoadError(error, false));
       } finally {
         state.inFlightLoads[view] = null;
       }
@@ -849,6 +1173,8 @@
     state.inFlightLoads[view] = request;
     return request;
   }
+
+  // ---- 操作 ----
 
   tabs.forEach(function(tab) {
     tab.addEventListener('click', function() {
@@ -863,18 +1189,44 @@
   });
 
   tickerInput.addEventListener('input', updateSearchWatchState);
+  tickerInput.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault();
+      tickerInput.blur();
+      fetchQuotePreview();
+    }
+  });
   fetchQuoteButton.addEventListener('click', fetchQuotePreview);
   sendTickerButton.addEventListener('click', sendTickerCommand);
+  recentChips.addEventListener('click', function(event) {
+    const chip = event.target.closest('[data-pick-ticker]');
+    if (!chip) {
+      return;
+    }
+    tickerInput.value = chip.dataset.pickTicker;
+    updateSearchWatchState();
+    fetchQuotePreview();
+  });
+  loginButton.addEventListener('click', function() {
+    if (window.liff && window.liff.login) {
+      window.liff.login({ redirectUri: window.location.href });
+    }
+  });
+
+  function openQuoteForRow(tickerRow) {
+    openQuoteModal(tickerRow.dataset.name || '銘柄の情報');
+    fetchQuoteByTicker(tickerRow.dataset.ticker, {
+      statusEl: quoteModalStatus,
+      targetEl: quoteModalContent,
+      titleEl: quoteModalTitle
+    });
+  }
+
   watchlistContent.addEventListener('click', function(event) {
     if (!event.target.closest('a, button, input, select') && !event.target.closest('.column-resizer')) {
       const tickerRow = event.target.closest('tr[data-ticker]');
       if (tickerRow) {
-        openQuoteModal(tickerRow.dataset.name || '銘柄情報');
-        fetchQuoteByTicker(tickerRow.dataset.ticker, {
-          statusEl: quoteModalStatus,
-          targetEl: quoteModalContent,
-          titleEl: quoteModalTitle
-        });
+        openQuoteForRow(tickerRow);
         return;
       }
     }
@@ -894,14 +1246,33 @@
       return;
     }
 
+    // しぼりこみの解除は、すぐ解除して「元に戻す」で戻せる（D1）
     const resetButton = event.target.closest('[data-watchlist-reset]');
     if (resetButton) {
-      Object.keys(state.watchlistFilters).forEach(function(key) {
-        state.watchlistFilters[key] = '';
-      });
+      const previousFilters = JSON.parse(JSON.stringify(state.watchlistFilters));
+      state.watchlistFilters = emptyWatchlistFilters();
       if (state.watchlistPayload) {
         renderWatchlist(state.watchlistPayload);
       }
+      toast('しぼりこみを解除しました', {
+        actionLabel: '元に戻す',
+        onAction: function() {
+          state.watchlistFilters = previousFilters;
+          if (state.watchlistPayload) {
+            renderWatchlist(state.watchlistPayload);
+          }
+        }
+      });
+    }
+  });
+  watchlistContent.addEventListener('keydown', function(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    const tickerRow = event.target.closest('tr[data-ticker]');
+    if (tickerRow && event.target === tickerRow) {
+      event.preventDefault();
+      openQuoteForRow(tickerRow);
     }
   });
   watchlistContent.addEventListener('change', function(event) {
@@ -950,26 +1321,51 @@
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   });
-  if (quoteModalClose) {
-    quoteModalClose.addEventListener('click', closeQuoteModal);
-  }
-  if (quoteModal) {
-    quoteModal.addEventListener('click', function(event) {
-      if (event.target === quoteModal) {
-        closeQuoteModal();
-      }
-    });
-  }
+  quoteModalClose.addEventListener('click', closeQuoteModal);
+  quoteModal.addEventListener('click', function(event) {
+    if (event.target === quoteModal) {
+      closeQuoteModal();
+    }
+  });
   document.addEventListener('keydown', function(event) {
     if (event.key === 'Escape') {
       closeQuoteModal();
     }
   });
 
+  // ---- はじめに ----
+
+  // 前に開いたときの中身を先に出す（返事を待つあいだ真っ白にしない。B1）
+  restoreCachedViews();
+  updateSendNote();
+  setActiveView(state.activeView, { forceReload: true });
+  updateSearchWatchState();
+
+  // はじめての人にだけ、使い方を3つ（B3）
+  const tip = kit();
+  if (tip && tip.firstTip && tabList) {
+    tip.firstTip('line-investment', [
+      '銘柄コードを入れて「🔍 株価を見る」で、いまの株価が見られます。',
+      '「💬 グループに送る」で #コード を送ると、ボットが注目に入れます。',
+      '注目一覧は、見出しを押すと並べかえ、下の欄でしぼりこめます。行を押すとくわしく見られます。'
+    ], tabList);
+  }
+
+  // 電波がないときも開けるように（B5）。手元の確かめでは読めなくてもよい
+  if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+    navigator.serviceWorker.register('./sw.js').catch(function() {});
+  }
+
   initializeLiff().finally(function() {
-    setBadge(groupBadge, 'group: ' + (state.groupId || '-'));
-    setBadge(userBadge, 'user: ' + (state.userId || '-'));
-    setActiveView(state.activeView, { silent: false, forceReload: true });
+    state.initDone = true;
+    updateSendNote();
+    updateDebugBadges();
+    if (!state.groupId && outsideNote.hidden) {
+      showOutsideNote('グループのトークから開いてね。トークで「#注目一覧」と送ると、開くボタンが届きます。', {});
+    }
+    if (state.activeView === 'watchlist' || state.activeView === 'performance') {
+      loadView(state.activeView);
+    }
     if (state.activeView !== 'watchlist') {
       loadView('watchlist');
     }
