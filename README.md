@@ -15,7 +15,6 @@ Google Apps Script と LINE Messaging API で動かす、LINE投資グループ�
 - `src/99_config.gs`: Script Properties と定数
 - `src/appsscript.json`: GASマニフェスト
 - `docs/liff/`: GitHub Pages で配信する LIFF フロントの静的ファイル
-- `RULES/`: このプロジェクト固有の運用前提、公開構成、段階導入ルール
 
 番号は責務の層を表しています。
 
@@ -156,4 +155,3 @@ debug 用の `groupId` / `userId` を使う場合は、`docs/liff/config.local.e
 - 通常会話には反応しません
 - LINE API エラーやイベント例外は `EVENT_LOG` に保存します
 - `replyToken` は各イベントで1回のみ利用しています
-- LIFF 段階導入の前提は [RULES/README.md](/Users/katsu/GitHub/T-FONTE投資部/RULES/README.md) と [RULES/01_liff_and_public_frontend_rules.md](/Users/katsu/GitHub/T-FONTE投資部/RULES/01_liff_and_public_frontend_rules.md) を参照してください
