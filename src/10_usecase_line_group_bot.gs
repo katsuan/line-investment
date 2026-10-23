@@ -65,7 +65,7 @@ function handleMemberJoined_(event) {
   });
 
   const rule = getCurrentRuleForGroup_(groupId);
-  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames, targetUserIds)], groupId, {
+  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames)], groupId, {
     quickReply: buildRuleAgreementQuickReply_(rule.version, targetUserIds),
   });
   logEventResult_(event, 'member_joined_reply', 'success', 'welcome flex sent', '');
@@ -109,14 +109,13 @@ function handlePostback_(event) {
     return;
   }
 
-  const currentRule = getCurrentRuleForGroup_(groupId) || { version: DEFAULT_RULE_VERSION_ };
+  const currentRule = getCurrentRuleForGroup_(groupId);
   const requestedRuleVersion = Math.floor(Number(params.ruleVersion || DEFAULT_RULE_VERSION_));
   if (requestedRuleVersion !== Number(currentRule.version)) {
     const actor = getActorProfileForGroup_(groupId, userId);
-    sendReplyMessage_(event.replyToken, [
+    replyRuleConfirmationPrompt_(event.replyToken, groupId, currentRule, actor.displayName ? [actor.displayName] : [], [userId], [
       { type: 'text', text: 'ルールが新しくなりました。読んでから、もう一度「確認しました」を押してね。' },
-      buildRuleConfirmationPromptFlexMessage_(currentRule, actor.displayName ? [actor.displayName] : [], [userId]),
-    ], groupId, { quickReply: buildRuleAgreementQuickReply_(currentRule.version, [userId]) });
+    ]);
     logEventResult_(event, 'agree_rules', 'ignored', 'old rule version', String(requestedRuleVersion));
     return;
   }
@@ -158,6 +157,7 @@ function handlePostback_(event) {
   logEventResult_(event, 'agree_rules', 'success', 'rule agreement recorded', '');
 }
 
+// トークのことば。決まったことば（# で始まる）のほかは、返事も記録もしない
 function handleMessage_(event) {
   assertGroupEvent_(event);
 
@@ -165,258 +165,296 @@ function handleMessage_(event) {
     return; // ふつうの写真・スタンプには返事をしない（記録もしない）
   }
 
-  const text = normalizeCommandText_(event.message.text);
-  const groupId = event.source.groupId;
-  const userId = event.source.userId || '';
-  const isSupportedCommand = isSupportedBotCommand_(text);
+  const context = {
+    event: event,
+    text: normalizeIncomingCommandText_(event.message.text),
+    groupId: event.source.groupId,
+    userId: event.source.userId || '',
+  };
 
-  if (!isSupportedCommand) {
+  if (context.text === '#グループ許可') {
+    handleGroupAllowCommand_(context);
+    return;
+  }
+
+  const handler = findMessageCommandHandler_(context.text);
+  if (!handler) {
     return; // ふつうの会話には返事をしない（毎回シートに書くと遅くなるので、記録もしない）
   }
 
-  if (text === '#グループ許可') {
-    if (!isAdminUser_(userId)) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: 'これは管理者だけが使えます。',
-      }], groupId);
-      logEventResult_(event, 'command_group_allow', 'ignored', 'admin only', '');
-      return;
-    }
-
-    addAllowedGroupId_(groupId);
-    let groupName = '';
-    try {
-      const summary = getCachedGroupSummary_(groupId);
-      groupName = summary && summary.groupName ? summary.groupName : '';
-    } catch (error) {
-      groupName = '';
-    }
-
-    upsertGroupRecord_({
-      groupId: groupId,
-      groupName: groupName,
-      enabled: true,
-      ruleVersion: DEFAULT_RULE_VERSION_,
-    });
-
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: 'このグループで使えるようにしました。\n新しく入った人には、ルールの案内を送ります。',
-    }], groupId);
-    logEventResult_(event, 'command_group_allow', 'success', 'group allowed', groupId);
+  if (!isAccessAllowedForCommand_(context.groupId, context.userId, context.text)) {
+    handleNotAllowedMessage_(context);
     return;
   }
 
-  if (!isAccessAllowedForCommand_(groupId, userId, text)) {
-    if (isGroupAccessAllowed_(groupId)) {
-      const actor = getActorProfileForGroup_(groupId, userId);
-      const rule = getCurrentRuleForGroup_(groupId);
-      const displayNames = actor.displayName ? [actor.displayName] : [];
-      sendReplyMessage_(event.replyToken, [buildRuleConfirmationPromptFlexMessage_(rule, displayNames, [userId])], groupId, {
-        quickReply: buildRuleAgreementQuickReply_(rule.version, [userId]),
-      });
-      logEventResult_(event, 'message_rule_prompt', 'success', 'rule confirmation prompted for unallowed user', text);
-      return;
-    }
+  handler(context);
+}
 
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: buildAccessDeniedText_(),
-    }], groupId);
-    logEventResult_(event, 'message_denied', 'ignored', 'group access denied', text);
-    return;
-  }
-
+// ことば → する関数（ないときは null）
+function findMessageCommandHandler_(text) {
   if (text === '#ルール') {
-    const rule = getCurrentRuleForGroup_(groupId);
-    if (isAccessAllowed_(groupId, userId)) {
-      sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, { quickReply: buildMainQuickReply_(groupId) });
-    } else {
-      // まだ確認していない人（ルールのカードの「📜 ルールを確認する」から来る）には、確認のクイックリプライを出しなおす
-      const actor = getActorProfileForGroup_(groupId, userId);
-      sendReplyMessage_(event.replyToken, [
-        buildRuleConfirmationPromptFlexMessage_(rule, actor.displayName ? [actor.displayName] : [], [userId]),
-      ], groupId, { quickReply: buildRuleAgreementQuickReply_(rule.version, [userId]) });
-    }
-    logEventResult_(event, 'command_rules', 'success', 'rule flex sent', '');
-    return;
+    return handleRuleCommand_;
   }
-
   if (text === '#未確認') {
-    const rule = getCurrentRuleForGroup_(groupId);
-    const members = getUnconfirmedMembers_(groupId, rule.version);
-    const message = members.length === 0
-      ? '全員が、いまのルールを確認しています。'
-      : [
-        'ルールをまだ確認していない人',
-        '',
-        members.map(function(member) {
-          return '・' + (member.displayName || '（名前がわからない人）');
-        }).join('\n'),
-        '',
-        'いまのルール：Version ' + rule.version,
-      ].join('\n');
-
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: message,
-    }], groupId);
-    logEventResult_(event, 'command_unconfirmed', 'success', 'unconfirmed members sent', '');
-    return;
+    return handleUnconfirmedCommand_;
   }
-
   if (text === '#Bot設定') {
-    const group = getGroupRecord_(groupId);
-    sendReplyMessage_(event.replyToken, [buildBotSettingsFlexMessage_(group, { showAccessCounts: isAdminUser_(userId) })], groupId);
-    logEventResult_(event, 'command_bot_settings', 'success', 'settings flex sent', '');
-    return;
+    return handleBotSettingsCommand_;
   }
-
   if (text === '#使い方' || text === '#ヘルプ') {
-    sendReplyMessage_(event.replyToken, [buildUsageGuideFlexMessage_({
-      watchlistUrl: buildLiffAppLaunchUrl_(groupId, 'watchlist'),
-    })], groupId, { quickReply: buildMainQuickReply_(groupId) });
-    logEventResult_(event, 'command_usage_guide', 'success', 'usage guide sent', text);
-    return;
+    return handleUsageCommand_;
   }
-
-  if (text === '#LIFF一覧' || text === '#注目一覧' || text === '#注目実績') {
-    const view = text === '#注目実績' ? 'performance' : 'watchlist';
-    const action = text === '#注目実績' ? 'command_watch_performance' : (text === '#注目一覧' ? 'command_watchlist' : 'command_liff_launch');
-    const liffUrl = buildLiffAppLaunchUrl_(groupId, view);
-    if (!liffUrl) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: '画面を開くリンクが、まだ用意されていません。管理者に伝えてね。',
-      }], groupId);
-      logEventResult_(event, action, 'ignored', 'LIFF_APP_BASE_URL missing', '');
-      return;
-    }
-
-    sendReplyMessage_(event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl, view)], groupId, {
-      quickReply: buildMainQuickReply_(groupId),
-    });
-    logEventResult_(event, action, 'success', view + ' launch sent', liffUrl);
-    return;
+  if (Object.prototype.hasOwnProperty.call(LIFF_LAUNCH_COMMANDS_, text)) {
+    return handleLiffLaunchCommand_;
   }
-
   if (isWatchRemovalCommand_(text)) {
-    const ticker = extractTickerFromWatchRemovalCommand_(text);
-    const actor = getActorProfileForGroup_(groupId, userId);
+    return handleWatchRemovalCommand_;
+  }
+  if (isSupportedWatchTickerCommand_(text)) {
+    return handleWatchAddCommand_;
+  }
+  return null;
+}
 
-    if (!ticker) {
-      if (!isAdminUser_(userId)) {
-        sendReplyMessage_(event.replyToken, [{
-          type: 'text',
-          text: '全部の注目を外すのは、管理者だけができます。\n自分の注目は「#解除 7203」のように外せます。',
-        }], groupId);
-        logEventResult_(event, 'command_watch_remove_all', 'ignored', 'admin only', '');
-        return;
-      }
+// 画面を開くことば：開く画面と、記録の名前
+const LIFF_LAUNCH_COMMANDS_ = Object.freeze({
+  '#LIFF一覧': { view: 'watchlist', action: 'command_liff_launch' },
+  '#注目一覧': { view: 'watchlist', action: 'command_watchlist' },
+  '#注目実績': { view: 'performance', action: 'command_watch_performance' },
+});
 
-      const deactivatedRecords = deactivateAllActiveWatchlistRecords_(groupId, userId, actor.displayName);
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: deactivatedRecords.length === 0
-          ? '外す注目銘柄はありません。'
-          : '注目銘柄を全部外しました（' + deactivatedRecords.length + '件）。',
-      }], groupId);
-      logEventResult_(event, 'command_watch_remove_all', 'success', 'all watchlist records deactivated', String(deactivatedRecords.length));
-      return;
-    }
+// 全角の「＃」・数字・空白も受けつける（スマホの日本語入力では全角になりやすい）
+function normalizeIncomingCommandText_(text) {
+  return normalizeCommandText_(String(text || '').normalize('NFKC'));
+}
 
-    const existingRecord = getWatchlistRecordByTicker_(groupId, ticker);
-    if (!existingRecord || String(existingRecord.active) === 'false') {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: ticker + ' は注目に入っていません。',
-      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
-      logEventResult_(event, 'command_watch_remove', 'ignored', 'watchlist record not found', ticker);
-      return;
-    }
+function replyText_(context, text, options) {
+  const withMainQuickReply = !!(options && options.mainQuickReply);
+  sendReplyMessage_(context.event.replyToken, [{ type: 'text', text: text }], context.groupId,
+    withMainQuickReply ? { quickReply: buildMainQuickReply_(context.groupId) } : undefined);
+}
 
-    if (!isAdminUser_(userId)) {
-      const ownerUserId = String(existingRecord.addedByUserId || '');
-      if (!ownerUserId || ownerUserId !== String(userId)) {
-        sendReplyMessage_(event.replyToken, [{
-          type: 'text',
-          text: ticker + ' を外せるのは、注目に入れた人か管理者だけです。',
-        }], groupId);
-        logEventResult_(event, 'command_watch_remove', 'ignored', 'not owner or admin', ticker);
-        return;
-      }
-    }
+// ルールの確認のカード＋「✅ ルールを確認しました」のクイックリプライ（押せるのは userIds の人だけ）
+function replyRuleConfirmationPrompt_(replyToken, groupId, rule, displayNames, userIds, leadMessages) {
+  sendReplyMessage_(replyToken, (leadMessages || []).concat([
+    buildRuleConfirmationPromptFlexMessage_(rule, displayNames),
+  ]), groupId, { quickReply: buildRuleAgreementQuickReply_(rule.version, userIds) });
+}
 
-    const deactivatedRecord = deactivateWatchlistRecord_(groupId, ticker, userId, actor.displayName);
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: '注目から外しました：' + ticker + '\n' +
-        toLineText_(deactivatedRecord.tickerName || existingRecord.tickerName || ticker, ticker),
-    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
-    logEventResult_(event, 'command_watch_remove', 'success', 'watchlist record deactivated', ticker);
+function handleGroupAllowCommand_(context) {
+  const event = context.event;
+  const groupId = context.groupId;
+  if (!isAdminUser_(context.userId)) {
+    replyText_(context, 'これは管理者だけが使えます。');
+    logEventResult_(event, 'command_group_allow', 'ignored', 'admin only', '');
     return;
   }
 
-  if (isSupportedWatchTickerCommand_(text)) {
-    const ticker = normalizeTickerCode_(text.slice(1));
-    if (!ticker) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: '「#」のあとに銘柄コードを入れて送ってね。\n例：#7203（日本株）・#AAPL（米国株）',
-      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
-      logEventResult_(event, 'command_watch_add', 'ignored', 'ticker missing', '');
+  addAllowedGroupId_(groupId);
+  let groupName = '';
+  try {
+    const summary = getCachedGroupSummary_(groupId);
+    groupName = summary && summary.groupName ? summary.groupName : '';
+  } catch (error) {
+    groupName = '';
+  }
+
+  upsertGroupRecord_({
+    groupId: groupId,
+    groupName: groupName,
+    enabled: true,
+    ruleVersion: DEFAULT_RULE_VERSION_,
+  });
+
+  replyText_(context, 'このグループで使えるようにしました。\n新しく入った人には、ルールの案内を送ります。');
+  logEventResult_(event, 'command_group_allow', 'success', 'group allowed', groupId);
+}
+
+// まだ使えない人：グループが許可されていれば、ルールの確認をお願いする
+function handleNotAllowedMessage_(context) {
+  const event = context.event;
+  const groupId = context.groupId;
+  if (isGroupAccessAllowed_(groupId)) {
+    const actor = getActorProfileForGroup_(groupId, context.userId);
+    const rule = getCurrentRuleForGroup_(groupId);
+    replyRuleConfirmationPrompt_(event.replyToken, groupId, rule, actor.displayName ? [actor.displayName] : [], [context.userId]);
+    logEventResult_(event, 'message_rule_prompt', 'success', 'rule confirmation prompted for unallowed user', context.text);
+    return;
+  }
+
+  replyText_(context, buildAccessDeniedText_());
+  logEventResult_(event, 'message_denied', 'ignored', 'group access denied', context.text);
+}
+
+function handleRuleCommand_(context) {
+  const event = context.event;
+  const groupId = context.groupId;
+  const rule = getCurrentRuleForGroup_(groupId);
+  if (isAccessAllowed_(groupId, context.userId)) {
+    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, { quickReply: buildMainQuickReply_(groupId) });
+  } else {
+    // まだ確認していない人（ルールのカードの「📜 ルールを確認する」から来る）には、確認のクイックリプライを出しなおす
+    const actor = getActorProfileForGroup_(groupId, context.userId);
+    replyRuleConfirmationPrompt_(event.replyToken, groupId, rule, actor.displayName ? [actor.displayName] : [], [context.userId]);
+  }
+  logEventResult_(event, 'command_rules', 'success', 'rule flex sent', '');
+}
+
+function handleUnconfirmedCommand_(context) {
+  const rule = getCurrentRuleForGroup_(context.groupId);
+  const members = getUnconfirmedMembers_(context.groupId, rule.version);
+  const message = members.length === 0
+    ? '全員が、いまのルールを確認しています。'
+    : [
+      'ルールをまだ確認していない人',
+      '',
+      members.map(function(member) {
+        return '・' + (member.displayName || '（名前がわからない人）');
+      }).join('\n'),
+      '',
+      'いまのルール：Version ' + rule.version,
+    ].join('\n');
+
+  replyText_(context, message);
+  logEventResult_(context.event, 'command_unconfirmed', 'success', 'unconfirmed members sent', '');
+}
+
+function handleBotSettingsCommand_(context) {
+  const group = getGroupRecord_(context.groupId);
+  sendReplyMessage_(context.event.replyToken, [
+    buildBotSettingsFlexMessage_(group, { showAccessCounts: isAdminUser_(context.userId) }),
+  ], context.groupId);
+  logEventResult_(context.event, 'command_bot_settings', 'success', 'settings flex sent', '');
+}
+
+function handleUsageCommand_(context) {
+  sendReplyMessage_(context.event.replyToken, [buildUsageGuideFlexMessage_({
+    watchlistUrl: buildLiffAppLaunchUrl_(context.groupId, 'watchlist'),
+  })], context.groupId, { quickReply: buildMainQuickReply_(context.groupId) });
+  logEventResult_(context.event, 'command_usage_guide', 'success', 'usage guide sent', context.text);
+}
+
+function handleLiffLaunchCommand_(context) {
+  const command = LIFF_LAUNCH_COMMANDS_[context.text];
+  const liffUrl = buildLiffAppLaunchUrl_(context.groupId, command.view);
+  if (!liffUrl) {
+    replyText_(context, '画面を開くリンクが、まだ用意されていません。管理者に伝えてね。');
+    logEventResult_(context.event, command.action, 'ignored', 'LIFF_APP_BASE_URL missing', '');
+    return;
+  }
+
+  sendReplyMessage_(context.event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl, command.view)], context.groupId, {
+    quickReply: buildMainQuickReply_(context.groupId),
+  });
+  logEventResult_(context.event, command.action, 'success', command.view + ' launch sent', liffUrl);
+}
+
+function handleWatchRemovalCommand_(context) {
+  const ticker = extractTickerFromWatchRemovalCommand_(context.text);
+  if (!ticker) {
+    handleWatchRemoveAllCommand_(context);
+    return;
+  }
+
+  const event = context.event;
+  const groupId = context.groupId;
+  const userId = context.userId;
+  // 外して入れなおした銘柄もあるので、いま注目中のものを見る
+  const activeRecord = getActiveWatchlistRecordByTicker_(groupId, ticker);
+  if (!activeRecord) {
+    replyText_(context, ticker + ' は注目に入っていません。', { mainQuickReply: true });
+    logEventResult_(event, 'command_watch_remove', 'ignored', 'watchlist record not found', ticker);
+    return;
+  }
+
+  if (!isAdminUser_(userId)) {
+    const ownerUserId = String(activeRecord.addedByUserId || '');
+    if (!ownerUserId || ownerUserId !== String(userId)) {
+      replyText_(context, ticker + ' を外せるのは、注目に入れた人か管理者だけです。');
+      logEventResult_(event, 'command_watch_remove', 'ignored', 'not owner or admin', ticker);
       return;
     }
+  }
 
-    const actor = getActorProfileForGroup_(groupId, userId);
-    const activeRecord = getActiveWatchlistRecordByTicker_(groupId, ticker);
-    let quoteAtRegistration = null;
-    try {
-      quoteAtRegistration = getMarketQuoteByTicker_(ticker, { forceRefresh: true });
-    } catch (error) {
-      logEventResult_(event, 'market_quote_fetch', 'error', 'quote fetch failed on watch add', buildErrorMessage_(error));
-    }
+  const actor = getActorProfileForGroup_(groupId, userId);
+  const deactivatedRecord = deactivateWatchlistRecord_(groupId, ticker, userId, actor.displayName) || activeRecord;
+  replyText_(context, '注目から外しました：' + ticker + '\n' +
+    toLineText_(deactivatedRecord.tickerName || activeRecord.tickerName || ticker, ticker), { mainQuickReply: true });
+  logEventResult_(event, 'command_watch_remove', 'success', 'watchlist record deactivated', ticker);
+}
 
-    if (!hasUsableQuoteForWatchAdd_(quoteAtRegistration)) {
-      sendReplyMessage_(event.replyToken, [{
-        type: 'text',
-        text: ticker + ' の株価が見つかりませんでした。\nコードを確かめて、もう一度送ってね。\n例：#7203（日本株）・#AAPL（米国株）',
-      }], groupId, { quickReply: buildMainQuickReply_(groupId) });
-      logEventResult_(event, 'command_watch_add', 'ignored', 'watch add quote unavailable', ticker);
-      return;
-    }
+function handleWatchRemoveAllCommand_(context) {
+  if (!isAdminUser_(context.userId)) {
+    replyText_(context, '全部の注目を外すのは、管理者だけができます。\n自分の注目は「#解除 7203」のように外せます。');
+    logEventResult_(context.event, 'command_watch_remove_all', 'ignored', 'admin only', '');
+    return;
+  }
 
-    if (activeRecord) {
-      sendReplyMessage_(event.replyToken, [buildWatchAlreadyActiveFlexMessage_(activeRecord, quoteAtRegistration, buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
-        quickReply: buildMainQuickReply_(groupId),
-      });
-      logEventResult_(event, 'command_watch_add', 'ignored', 'watchlist record already active', ticker);
-      return;
-    }
+  const actor = getActorProfileForGroup_(context.groupId, context.userId);
+  const deactivatedRecords = deactivateAllActiveWatchlistRecords_(context.groupId, context.userId, actor.displayName);
+  replyText_(context, deactivatedRecords.length === 0
+    ? '外す注目銘柄はありません。'
+    : '注目銘柄を全部外しました（' + deactivatedRecords.length + '件）。');
+  logEventResult_(context.event, 'command_watch_remove_all', 'success', 'all watchlist records deactivated', String(deactivatedRecords.length));
+}
 
-    const record = createWatchlistRecord_({
-      groupId: groupId,
-      ticker: ticker,
-      tickerName: quoteAtRegistration && quoteAtRegistration.name ? quoteAtRegistration.name : '',
-      addedAt: nowJst_(),
-      addedMarketTicker: quoteAtRegistration && quoteAtRegistration.marketTicker ? quoteAtRegistration.marketTicker : composeMarketTicker_(ticker),
-      addedPrice: quoteAtRegistration && quoteAtRegistration.price ? quoteAtRegistration.price : '',
-      addedMarketCap: quoteAtRegistration && quoteAtRegistration.marketCap ? quoteAtRegistration.marketCap : '',
-      addedChangePercent: quoteAtRegistration && quoteAtRegistration.changePercent ? quoteAtRegistration.changePercent : '',
-      addedTradeTime: quoteAtRegistration && quoteAtRegistration.tradeTime ? quoteAtRegistration.tradeTime : '',
-      addedByUserId: userId,
-      addedByDisplayName: actor.displayName,
-      active: true,
-    });
+function handleWatchAddCommand_(context) {
+  const event = context.event;
+  const groupId = context.groupId;
+  const userId = context.userId;
+  const ticker = normalizeTickerCode_(context.text.slice(1));
+  const watchlistUrl = buildLiffAppLaunchUrl_(groupId, 'watchlist');
 
-    sendReplyMessage_(event.replyToken, [buildWatchRegistrationFlexMessage_(record, quoteAtRegistration, buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
+  const actor = getActorProfileForGroup_(groupId, userId);
+  const activeRecord = getActiveWatchlistRecordByTicker_(groupId, ticker);
+  let quoteAtRegistration = null;
+  try {
+    quoteAtRegistration = getMarketQuoteByTicker_(ticker, { forceRefresh: true });
+  } catch (error) {
+    logEventResult_(event, 'market_quote_fetch', 'error', 'quote fetch failed on watch add', buildErrorMessage_(error));
+  }
+
+  if (!hasUsableQuoteForWatchAdd_(quoteAtRegistration)) {
+    replyText_(context, ticker + ' の株価が見つかりませんでした。\nコードを確かめて、もう一度送ってね。\n例：#7203（日本株）・#AAPL（米国株）', { mainQuickReply: true });
+    logEventResult_(event, 'command_watch_add', 'ignored', 'watch add quote unavailable', ticker);
+    return;
+  }
+
+  // 株価を取りに行っているあいだに、ほかの人が同じ銘柄を入れることがある。足すのはロックの中で確かめてから
+  const added = activeRecord
+    ? { record: activeRecord, created: false }
+    : createWatchlistRecordIfAbsent_(buildWatchlistRecordFromQuote_(groupId, ticker, quoteAtRegistration, actor));
+
+  if (!added.created) {
+    sendReplyMessage_(event.replyToken, [buildWatchAlreadyActiveFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)], groupId, {
       quickReply: buildMainQuickReply_(groupId),
     });
-    logEventResult_(event, 'command_watch_add', 'success', 'watchlist record created', ticker);
+    logEventResult_(event, 'command_watch_add', 'ignored', 'watchlist record already active', ticker);
     return;
   }
 
+  sendReplyMessage_(event.replyToken, [buildWatchRegistrationFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)], groupId, {
+    quickReply: buildMainQuickReply_(groupId),
+  });
+  logEventResult_(event, 'command_watch_add', 'success', 'watchlist record created', ticker);
+}
+
+function buildWatchlistRecordFromQuote_(groupId, ticker, quote, actor) {
+  const q = quote || {};
+  return {
+    groupId: groupId,
+    ticker: ticker,
+    tickerName: q.name || '',
+    addedAt: nowJst_(),
+    addedMarketTicker: q.marketTicker || composeMarketTicker_(ticker),
+    addedPrice: q.price || '',
+    addedMarketCap: q.marketCap || '',
+    addedChangePercent: q.changePercent || '',
+    addedTradeTime: q.tradeTime || '',
+    addedByUserId: actor.userId,
+    addedByDisplayName: actor.displayName,
+    active: true,
+  };
 }
 
 function hasUsableQuoteForWatchAdd_(quote) {
@@ -470,21 +508,43 @@ function isMemberRecordUpToDate_(groupId, userId, displayName) {
   return String(row.displayName || '') === String(displayName) && String(row.active) !== 'false';
 }
 
-function hydrateRecentWatchlistWithCurrentQuotes_(records, options) {
-  const settings = options || {};
-  const recentRecords = records.slice(0, DEFAULT_WATCHLIST_RECENT_LIMIT_);
-  const quoteMap = getMarketQuoteMapByTickers_(recentRecords.map(function(record) {
+// 注目の記録に、いまの株価（currentQuote）を付ける。forceRefresh でなければ、シートに覚えた株価だけを使う（速く返す）
+function hydrateRecordsWithQuotes_(records, options) {
+  const forceRefresh = !!(options && options.forceRefresh);
+  const quoteMap = getMarketQuoteMapByTickers_(records.map(function(record) {
     return record.ticker;
   }), {
-    forceRefresh: !!settings.forceRefresh,
-    useLatestCacheOnly: !settings.forceRefresh,
+    forceRefresh: forceRefresh,
+    useLatestCacheOnly: !forceRefresh,
   });
 
-  return recentRecords.map(function(record) {
+  return records.map(function(record) {
     return Object.assign({}, record, {
       currentQuote: quoteMap[normalizeTickerCode_(record.ticker)] || null,
     });
   });
+}
+
+function hydrateRecentWatchlistWithCurrentQuotes_(records, options) {
+  return hydrateRecordsWithQuotes_(records.slice(0, LIFF_WATCHLIST_LIMIT_), options);
+}
+
+// 注目したときの株価から、いまの株価までの変化（%）。どちらかがないときは null
+function calcWatchPriceDelta_(record) {
+  const quote = record.currentQuote || null;
+  return calcPercentDelta_(toNumberOrNaN_(quote && quote.price), toNumberOrNaN_(record.addedPrice));
+}
+
+// 注目したときからの騰落率の文字。時価総額が両方あれば時価総額で（株式分割に左右されない）、なければ株価で
+function formatWatchPerformanceDelta_(record, quote) {
+  if (quote && quote.marketCap && record.addedMarketCap) {
+    return formatSignedPercentDeltaFromBaseScaled_(quote.marketCap, record.addedMarketCap);
+  }
+  return formatSignedPercentDeltaFromBase_(quote && quote.price ? quote.price : '', record.addedPrice);
+}
+
+function resolveRecordMarketTicker_(record, quote) {
+  return record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker);
 }
 
 function isWatchRemovalCommand_(text) {
@@ -549,22 +609,6 @@ function buildAccessDeniedText_() {
   ].join('\n');
 }
 
-function isSupportedBotCommand_(text) {
-  return (
-    text === '#ルール' ||
-    text === '#未確認' ||
-    text === '#グループ許可' ||
-    text === '#使い方' ||
-    text === '#ヘルプ' ||
-    text === '#LIFF一覧' ||
-    text === '#Bot設定' ||
-    text === '#注目一覧' ||
-    text === '#注目実績' ||
-    isWatchRemovalCommand_(text) ||
-    isSupportedWatchTickerCommand_(text)
-  );
-}
-
 function addAllowedUserId_(userId) {
   if (!userId) {
     return getAllowedUserIds_();
@@ -579,15 +623,9 @@ function addAllowedGroupId_(groupId) {
   return addScriptPropertyListValue_('ALLOWED_GROUP_IDS', groupId);
 }
 
+// 注目した人ごとの実績（注目した数と、平均の騰落率）。上位5位まで（同じ成績は同じ順位）
 function buildWatchPerformanceStats_(groupId, options) {
-  const settings = options || {};
-  const records = getActiveWatchlistByGroup_(groupId);
-  const quoteMap = getMarketQuoteMapByTickers_(records.map(function(record) {
-    return record.ticker;
-  }), {
-    forceRefresh: !!settings.forceRefresh,
-    useLatestCacheOnly: !settings.forceRefresh,
-  });
+  const records = hydrateRecordsWithQuotes_(getActiveWatchlistByGroup_(groupId), options);
   const statsByUser = {};
   records.forEach(function(record) {
     const key = String(record.addedByUserId || record.addedByDisplayName || 'unknown');
@@ -595,41 +633,29 @@ function buildWatchPerformanceStats_(groupId, options) {
       statsByUser[key] = {
         userId: record.addedByUserId || '',
         displayName: record.addedByDisplayName || '不明',
-        pictureUrl: '',
         pickCount: 0,
         deltaSum: 0,
         deltaCount: 0,
       };
     }
-
-    statsByUser[key].pickCount += 1;
-
-    const quote = quoteMap[normalizeTickerCode_(record.ticker)] || null;
-    const current = Number(quote && quote.price);
-    const base = Number(record.addedPrice);
-    if (!Number.isNaN(current) && !Number.isNaN(base) && base !== 0) {
-      statsByUser[key].deltaSum += ((current - base) / base) * 100;
-      statsByUser[key].deltaCount += 1;
+    const stat = statsByUser[key];
+    stat.pickCount += 1;
+    const delta = calcWatchPriceDelta_(record);
+    if (delta !== null) {
+      stat.deltaSum += delta;
+      stat.deltaCount += 1;
     }
   });
 
   const rows = Object.keys(statsByUser)
     .map(function(key) {
       const stat = statsByUser[key];
-      if (stat.userId) {
-        try {
-          const profile = getGroupMemberProfile_(groupId, stat.userId);
-          stat.displayName = profile.displayName || stat.displayName;
-          stat.pictureUrl = profile.pictureUrl || '';
-        } catch (error) {
-          stat.pictureUrl = '';
-        }
-      }
+      const profile = getMemberProfileOrEmpty_(groupId, stat.userId);
       const average = stat.deltaCount > 0 ? (stat.deltaSum / stat.deltaCount) : null;
       return {
         userId: stat.userId,
-        displayName: stat.displayName,
-        pictureUrl: stat.pictureUrl,
+        displayName: profile.displayName || stat.displayName,
+        pictureUrl: profile.pictureUrl || '',
         pickCount: stat.pickCount,
         averageDelta: average,
         rankingAverageDelta: average === null ? Number.NEGATIVE_INFINITY : average,
@@ -647,22 +673,15 @@ function buildWatchPerformanceStats_(groupId, options) {
 
   const limitedRows = [];
   let currentRank = 0;
-  let previousPickCount = null;
-
+  let previousRankingKey = null;
   rows.forEach(function(row, index) {
     const rankingKey = row.rankingAverageDelta + '|' + row.pickCount;
-    const previousRankingKey = previousPickCount === null
-      ? null
-      : previousPickCount;
-    if (previousRankingKey === null || rankingKey !== previousRankingKey) {
+    if (rankingKey !== previousRankingKey) {
       currentRank = index + 1;
-      previousPickCount = rankingKey;
+      previousRankingKey = rankingKey;
     }
-
     if (currentRank <= 5) {
-      limitedRows.push(Object.assign({}, row, {
-        rank: currentRank,
-      }));
+      limitedRows.push(Object.assign({}, row, { rank: currentRank }));
     }
   });
 
@@ -672,28 +691,31 @@ function buildWatchPerformanceStats_(groupId, options) {
   };
 }
 
-function buildNonTopRandomWatchSpotlightData_(groupId, stats, options) {
-  const rows = (stats && stats.rows) || [];
-  if (rows.length <= 1) {
-    return null;
+// LINE の名前と写真（わからないときは空）
+function getMemberProfileOrEmpty_(groupId, userId) {
+  if (!userId) {
+    return {};
   }
+  try {
+    return getGroupMemberProfile_(groupId, userId) || {};
+  } catch (error) {
+    return {};
+  }
+}
 
-  const topRow = rows[0];
-  const candidates = rows.slice(1).map(function(row) {
-    return {
-      userId: row.userId || '',
-      displayName: row.displayName || '不明',
-    };
-  });
+// 1位でない人から、1人をえらんで紹介する
+function buildNonTopRandomWatchSpotlightData_(groupId, stats, options) {
+  const candidates = ((stats && stats.rows) || []).slice(1);
   if (candidates.length === 0) {
     return null;
   }
 
   const selected = candidates[Math.floor(Math.random() * candidates.length)];
-  return buildWatchSpotlightDataForUser_(groupId, selected.userId, selected.displayName, Object.assign({
+  const displayName = selected.displayName || '不明';
+  return buildWatchSpotlightDataForUser_(groupId, selected.userId || '', displayName, Object.assign({
     limit: 3,
     sortByDeltaDesc: false,
-    title: 'ランダム ' + toLineText_(selected.displayName, '不明'),
+    title: 'ランダム ' + toLineText_(displayName, '不明'),
   }, options || {}));
 }
 
@@ -713,8 +735,7 @@ function buildTopPerformerWatchSpotlightData_(groupId, stats, options) {
 
 function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, options) {
   const settings = options || {};
-  const records = getActiveWatchlistByGroup_(groupId);
-  const filteredRecords = records.filter(function(record) {
+  const filteredRecords = getActiveWatchlistByGroup_(groupId).filter(function(record) {
     if (userId) {
       return String(record.addedByUserId || '') === String(userId);
     }
@@ -724,37 +745,9 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     return null;
   }
 
-  let displayName = fallbackDisplayName || filteredRecords[0].addedByDisplayName || '不明';
-  let pictureUrl = '';
-  if (userId) {
-    try {
-      const profile = getGroupMemberProfile_(groupId, userId);
-      displayName = profile.displayName || displayName;
-      pictureUrl = profile.pictureUrl || '';
-    } catch (error) {
-      pictureUrl = '';
-    }
-  }
-
-  const quoteMap = getMarketQuoteMapByTickers_(filteredRecords.map(function(row) {
-    return row.ticker;
-  }), {
-    forceRefresh: !!settings.forceRefresh,
-    useLatestCacheOnly: !settings.forceRefresh,
-  });
-
-  const hydratedRecords = filteredRecords.map(function(record) {
-    return Object.assign({}, record, {
-      currentQuote: quoteMap[normalizeTickerCode_(record.ticker)] || null,
-    });
-  });
-
-  hydratedRecords.forEach(function(record) {
-    const current = Number(record.currentQuote && record.currentQuote.price);
-    const base = Number(record.addedPrice);
-    record.currentDelta = (!Number.isNaN(current) && !Number.isNaN(base) && base !== 0)
-      ? ((current - base) / base) * 100
-      : null;
+  const profile = getMemberProfileOrEmpty_(groupId, userId);
+  const hydratedRecords = hydrateRecordsWithQuotes_(filteredRecords, settings).map(function(record) {
+    return Object.assign(record, { currentDelta: calcWatchPriceDelta_(record) });
   });
 
   let deltaSum = 0;
@@ -781,8 +774,8 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
   return {
     title: settings.title || '注目カード',
     userId: userId || '',
-    displayName: displayName,
-    pictureUrl: pictureUrl,
+    displayName: profile.displayName || fallbackDisplayName || filteredRecords[0].addedByDisplayName || '不明',
+    pictureUrl: profile.pictureUrl || '',
     pickCount: hydratedRecords.length,
     averageDelta: deltaCount > 0 ? (deltaSum / deltaCount) : null,
     records: displayRecords.slice(0, settings.limit || 5),
@@ -809,8 +802,8 @@ function buildLiffWatchlistPayload_(groupId, options) {
   });
   let latestCachedAt = '';
   hydratedRecords.forEach(function(record) {
-    const cachedAt = record.currentQuote && record.currentQuote.fetchedAt ? record.currentQuote.fetchedAt : '';
-    if (cachedAt && String(cachedAt) > String(latestCachedAt)) {
+    const cachedAt = record.currentQuote && record.currentQuote.fetchedAt ? String(record.currentQuote.fetchedAt) : '';
+    if (cachedAt > latestCachedAt) {
       latestCachedAt = cachedAt;
     }
   });
@@ -819,23 +812,19 @@ function buildLiffWatchlistPayload_(groupId, options) {
     latestCachedAt: latestCachedAt,
     items: hydratedRecords.map(function(record) {
       const quote = record.currentQuote || null;
-      const currentPrice = quote && quote.price ? quote.price : '';
-      const useMarketCapDelta = quote && quote.marketCap && record.addedMarketCap;
+      const marketTicker = resolveRecordMarketTicker_(record, quote);
+      const performanceDelta = formatWatchPerformanceDelta_(record, quote);
       return {
         ticker: record.ticker,
         name: (quote && quote.name) || record.tickerName || record.ticker,
-        marketTicker: record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker),
-        marketFlag: buildMarketFlagEmoji_(record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker)),
-        currentPrice: currentPrice || '',
+        marketTicker: marketTicker,
+        marketFlag: buildMarketFlagEmoji_(marketTicker),
+        currentPrice: quote && quote.price ? quote.price : '',
         addedPrice: record.addedPrice || '',
-        performanceDelta: useMarketCapDelta
-          ? formatSignedPercentDeltaFromBaseScaled_(quote.marketCap, record.addedMarketCap)
-          : formatSignedPercentDeltaFromBase_(currentPrice, record.addedPrice),
+        performanceDelta: performanceDelta,
         marketCap: quote && quote.marketCap ? quote.marketCap : '',
         addedMarketCap: record.addedMarketCap || '',
-        marketCapDelta: quote && quote.marketCap && record.addedMarketCap
-          ? formatSignedPercentDeltaFromBaseScaled_(quote.marketCap, record.addedMarketCap)
-          : '',
+        marketCapDelta: quote && quote.marketCap && record.addedMarketCap ? performanceDelta : '',
         per: quote && quote.per ? quote.per : '',
         volume: quote && quote.volume ? quote.volume : '',
         addedAt: formatDateDisplayOnly_(record.addedAt),
@@ -849,45 +838,8 @@ function buildLiffWatchlistPayload_(groupId, options) {
 }
 
 function buildLiffPerformancePayload_(groupId, options) {
-  const settings = options || {};
-  const stats = buildWatchPerformanceStats_(groupId, {
-    forceRefresh: !!settings.forceRefresh,
-  });
-  const topSpotlight = buildTopPerformerWatchSpotlightData_(groupId, stats, {
-    forceRefresh: !!settings.forceRefresh,
-  });
-  const randomSpotlight = buildNonTopRandomWatchSpotlightData_(groupId, stats, {
-    forceRefresh: !!settings.forceRefresh,
-  });
-
-  function mapSpotlight_(spotlight) {
-    if (!spotlight) {
-      return null;
-    }
-    return {
-      title: spotlight.title,
-      displayName: spotlight.displayName,
-      pictureUrl: spotlight.pictureUrl,
-      pickCount: spotlight.pickCount,
-      averageDelta: spotlight.averageDelta,
-      items: (spotlight.records || []).map(function(record) {
-        const quote = record.currentQuote || null;
-        return {
-          ticker: record.ticker,
-          name: (quote && quote.name) || record.tickerName || record.ticker,
-          marketTicker: record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker),
-          marketFlag: buildMarketFlagEmoji_(record.addedMarketTicker || (quote && quote.marketTicker) || composeMarketTicker_(record.ticker)),
-          currentPrice: quote && quote.price ? quote.price : '',
-          addedPrice: record.addedPrice || '',
-          currentDelta: record.currentDelta,
-          currentDeltaText: formatSignedPercentDeltaFromBase_(quote && quote.price ? quote.price : '', record.addedPrice),
-          addedAt: formatDateDisplayOnly_(record.addedAt),
-          kabutanUrl: buildKabutanUrl_(record.ticker),
-        };
-      }),
-    };
-  }
-
+  const settings = { forceRefresh: !!(options && options.forceRefresh) };
+  const stats = buildWatchPerformanceStats_(groupId, settings);
   return {
     totalCount: stats.totalCount || 0,
     ranking: (stats.rows || []).map(function(row) {
@@ -899,9 +851,39 @@ function buildLiffPerformancePayload_(groupId, options) {
         averageDelta: row.averageDelta,
       };
     }),
-    topSpotlight: mapSpotlight_(topSpotlight),
-    randomSpotlight: mapSpotlight_(randomSpotlight),
+    topSpotlight: toLiffSpotlight_(buildTopPerformerWatchSpotlightData_(groupId, stats, settings)),
+    randomSpotlight: toLiffSpotlight_(buildNonTopRandomWatchSpotlightData_(groupId, stats, settings)),
     cached: !settings.forceRefresh,
+  };
+}
+
+// 画面に返す紹介カード（LINE のユーザー ID は返さない）
+function toLiffSpotlight_(spotlight) {
+  if (!spotlight) {
+    return null;
+  }
+  return {
+    title: spotlight.title,
+    displayName: spotlight.displayName,
+    pictureUrl: spotlight.pictureUrl,
+    pickCount: spotlight.pickCount,
+    averageDelta: spotlight.averageDelta,
+    items: (spotlight.records || []).map(function(record) {
+      const quote = record.currentQuote || null;
+      const marketTicker = resolveRecordMarketTicker_(record, quote);
+      return {
+        ticker: record.ticker,
+        name: (quote && quote.name) || record.tickerName || record.ticker,
+        marketTicker: marketTicker,
+        marketFlag: buildMarketFlagEmoji_(marketTicker),
+        currentPrice: quote && quote.price ? quote.price : '',
+        addedPrice: record.addedPrice || '',
+        currentDelta: record.currentDelta,
+        currentDeltaText: formatSignedPercent_(record.currentDelta),
+        addedAt: formatDateDisplayOnly_(record.addedAt),
+        kabutanUrl: buildKabutanUrl_(record.ticker),
+      };
+    }),
   };
 }
 
@@ -921,17 +903,15 @@ function buildLiffQuotePayload_(groupId, ticker, options) {
   const marketTicker = (quote && quote.marketTicker) ||
     (activeRecord && activeRecord.addedMarketTicker) ||
     composeMarketTicker_(normalizedTicker);
-  const currentPrice = quote && quote.price ? quote.price : '';
-  const marketCap = quote && quote.marketCap ? quote.marketCap : '';
 
   return {
     ticker: normalizedTicker,
     name: (quote && quote.name) || (activeRecord && activeRecord.tickerName) || normalizedTicker,
     marketTicker: marketTicker,
     marketFlag: buildMarketFlagEmoji_(marketTicker),
-    currentPrice: currentPrice || '',
+    currentPrice: quote && quote.price ? quote.price : '',
     changePercent: quote && quote.changePercent ? quote.changePercent : '',
-    marketCap: marketCap || '',
+    marketCap: quote && quote.marketCap ? quote.marketCap : '',
     per: quote && quote.per ? quote.per : '',
     volume: quote && quote.volume ? quote.volume : '',
     kabutanUrl: buildKabutanUrl_(normalizedTicker),
@@ -940,11 +920,7 @@ function buildLiffQuotePayload_(groupId, ticker, options) {
     watchedBy: activeRecord ? (activeRecord.addedByDisplayName || '') : '',
     watchedAt: activeRecord ? formatDateDisplayOnly_(activeRecord.addedAt) : '',
     addedPrice: activeRecord ? (activeRecord.addedPrice || '') : '',
-    performanceDelta: activeRecord
-      ? (marketCap && activeRecord.addedMarketCap
-        ? formatSignedPercentDeltaFromBaseScaled_(marketCap, activeRecord.addedMarketCap)
-        : formatSignedPercentDeltaFromBase_(currentPrice, activeRecord.addedPrice))
-      : '',
+    performanceDelta: activeRecord ? formatWatchPerformanceDelta_(activeRecord, quote) : '',
     cached: !settings.forceRefresh,
   };
 }

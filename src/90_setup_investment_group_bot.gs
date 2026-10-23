@@ -130,82 +130,65 @@ function hideSheetIfExists_(spreadsheet, sheetName) {
   }
 }
 
+// 決まりのルール（Version 1）。RULES シートの1行と同じ並び
+const DEFAULT_RULE_TITLE_ = '投資情報共有グループのルール';
+const DEFAULT_RULE_PURPOSE_ = [
+  '## 🏛️ グループの目的',
+  '当グループは、メンバー間の「教え合い」と「リアルタイムな情報共有」を目的としています。',
+  '',
+  '小さな疑問の解消から、最新の相場環境のキャッチアップまで、全員で投資リテラシーを高め合う空間を目指します。',
+].join('\n');
+const DEFAULT_RULE_PROHIBITED_ITEMS_ = [
+  '------------------------------',
+  '※怪しい商品の販売、勧誘はありません',
+  'もちろん逆もNGです',
+  '',
+  '・投資商品や情報商材の販売',
+  '・営業、勧誘、MLMへの誘導',
+  '・怪しい案件や商品の紹介',
+  '・グループ外サービスへの不適切な誘導',
+  '・誹謗中傷',
+  '・迷惑行為',
+  '・他メンバーへの過度な売買推奨',
+  '',
+  'グループ内からの勧誘だけでなく、メンバーが外部の怪しい商品やサービスへ勧誘する行為も禁止します。',
+].join('\n');
+const DEFAULT_RULE_DISCLAIMER_ = [
+  '当グループは情報交換と学習を目的としており、特定の金融商品や銘柄の売買を推奨するものではありません。',
+  '',
+  '投資判断は各自の責任で行うものとします。',
+].join('\n');
+
+function buildDefaultRuleRecord_() {
+  return {
+    version: DEFAULT_RULE_VERSION_,
+    title: DEFAULT_RULE_TITLE_,
+    purpose: DEFAULT_RULE_PURPOSE_,
+    prohibitedItems: DEFAULT_RULE_PROHIBITED_ITEMS_,
+    disclaimer: DEFAULT_RULE_DISCLAIMER_,
+    enabled: true,
+    createdAt: nowJst_(),
+  };
+}
+
+function buildDefaultRuleRow_() {
+  const rule = buildDefaultRuleRecord_();
+  return [rule.version, rule.title, rule.purpose, rule.prohibitedItems, rule.disclaimer, rule.enabled, rule.createdAt];
+}
+
 function seedOrUpdateDefaultRule_() {
-  const sheet = getSheetOrThrow_(SHEET_NAMES_.RULES);
-  const defaultRuleRow = [
-    DEFAULT_RULE_VERSION_,
-    '投資情報共有グループのルール',
-    [
-      '## 🏛️ グループの目的',
-      '当グループは、メンバー間の「教え合い」と「リアルタイムな情報共有」を目的としています。',
-      '',
-      '小さな疑問の解消から、最新の相場環境のキャッチアップまで、全員で投資リテラシーを高め合う空間を目指します。',
-    ].join('\n'),
-    [
-      '------------------------------',
-      '※怪しい商品の販売、勧誘はありません',
-      'もちろん逆もNGです',
-      '',
-      '・投資商品や情報商材の販売',
-      '・営業、勧誘、MLMへの誘導',
-      '・怪しい案件や商品の紹介',
-      '・グループ外サービスへの不適切な誘導',
-      '・誹謗中傷',
-      '・迷惑行為',
-      '・他メンバーへの過度な売買推奨',
-      '',
-      'グループ内からの勧誘だけでなく、メンバーが外部の怪しい商品やサービスへ勧誘する行為も禁止します。'
-    ].join('\n'),
-    [
-      '当グループは情報交換と学習を目的としており、特定の金融商品や銘柄の売買を推奨するものではありません。',
-      '',
-      '投資判断は各自の責任で行うものとします。'
-    ].join('\n'),
-    true,
-    nowJst_(),
-  ];
   const existing = getRuleByVersion_(DEFAULT_RULE_VERSION_);
   if (!existing) {
-    sheet.appendRow(defaultRuleRow.map(safeCell)); // 「---」で始まる文も、式にせず文字のまま
+    getSheetOrThrow_(SHEET_NAMES_.RULES).appendRow(buildDefaultRuleRow_().map(safeCell)); // 「---」で始まる文も、式にせず文字のまま
     return;
   }
 
-  updateRuleVersionOne_(defaultRuleRow);
+  updateRuleVersionOne_(buildDefaultRuleRow_());
 }
 
+// GAS エディタから動かす：Version 1 のルールを、決まりの文に戻す
 function updateDefaultRuleVersionOne() {
-  updateRuleVersionOne_([
-    DEFAULT_RULE_VERSION_,
-    '投資情報共有グループのルール',
-    [
-      '## 🏛️ グループの目的',
-      '当グループは、メンバー間の「教え合い」と「リアルタイムな情報共有」を目的としています。',
-      '',
-      '小さな疑問の解消から、最新の相場環境のキャッチアップまで、全員で投資リテラシーを高め合う空間を目指します。'
-    ].join('\n'),
-    [
-      '------------------------------',
-      '※怪しい商品の販売、勧誘はありません',
-      'もちろん逆もNGです',
-      '',
-      '・投資商品や情報商材の販売',
-      '・営業、勧誘、MLMへの誘導',
-      '・怪しい案件や商品の紹介',
-      '・グループ外サービスへの不適切な誘導',
-      '・誹謗中傷',
-      '・迷惑行為',
-      '・他メンバーへの過度な売買推奨',
-      '',
-      'グループ内からの勧誘だけでなく、メンバーが外部の怪しい商品やサービスへ勧誘する行為も禁止します。'
-    ].join('\n'),
-    [
-      '当グループは情報交換と学習を目的としており、特定の金融商品や銘柄の売買を推奨するものではありません。',
-      '',
-      '投資判断は各自の責任で行うものとします。'
-    ].join('\n'),
-    true,
-    nowJst_(),
-  ]);
+  updateRuleVersionOne_(buildDefaultRuleRow_());
 }
 
 function updateRuleVersionOne_(rowValues) {

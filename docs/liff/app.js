@@ -29,6 +29,11 @@
       watchlist: null,
       performance: null
     },
+    // 読みこみの番号。重なったときは、いちばん新しい読みこみの返事だけを使う
+    loadSeq: {
+      watchlist: 0,
+      performance: 0
+    },
     watchlistSort: {
       key: 'addedAt',
       direction: 'desc'
@@ -146,13 +151,23 @@
     if (typeof value !== 'string') {
       return '';
     }
-    if (value.indexOf('+') === 0) {
+    // 「-」だけ（数がない）は色を付けない
+    if (/^\+\d/.test(value)) {
       return 'plus';
     }
-    if (value.indexOf('-') === 0) {
+    if (/^-\d/.test(value)) {
       return 'minus';
     }
     return '';
+  }
+
+  // 前日比：「+1.20」のように % なしで来るので、数なら % を付ける
+  function formatChangePercent(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+      return '-';
+    }
+    return /^[+-]?\d+(\.\d+)?$/.test(text) ? text + '%' : text;
   }
 
   function escapeHtml(text) {
@@ -847,7 +862,7 @@
       return 'LINE とのつながりが切れました。LINE アプリで開きなおしてね。';
     }
     if (error && error.kind === 'denied') {
-      return '見られるのは、ルールを確認した人だけです。トークのルールのカードで「確認しました」を押してね。';
+      return '見られるのは、ルールを確認した人だけです。トークで「#ルール」と送り、「✅ ルールを確認しました」を押してね。';
     }
     if (hasCache) {
       return '新しくできませんでした。前に開いたときの内容を出しています。電波のよいところで「↻ 新しくする」を押してね。';
@@ -928,7 +943,7 @@
       '<a class="pill-link" href="' + escapeHtml(payload.kabutanUrl || '#') + '" target="_blank" rel="noopener noreferrer">🔍 株探で見る</a>',
       '</div>',
       '<div class="stat-row">',
-      '<div class="metric-block"><h4 class="mono big-price">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>いまの株価・前日比 <span class="delta ' + getDeltaClass(payload.changePercent || '') + '">' + escapeHtml(payload.changePercent || '-') + '</span></p></div>',
+      '<div class="metric-block"><h4 class="mono big-price">' + escapeHtml(payload.currentPrice || '-') + '</h4><p>いまの株価・前日比 <span class="delta ' + getDeltaClass(payload.changePercent || '') + '">' + escapeHtml(formatChangePercent(payload.changePercent)) + '</span></p></div>',
       payload.isWatched
         ? '<div class="metric-block"><h4 class="mono delta ' + getDeltaClass(payload.performanceDelta || '') + '">' + escapeHtml(payload.performanceDelta || '-') + '</h4><p>注目したときから</p></div>'
         : '',
@@ -1170,9 +1185,16 @@
     }
     const stopProgress = startSlowProgress(loadingEl, cachedPayload ? '新しくしています' : '読みこんでいます');
 
+    const seq = ++state.loadSeq[view];
+    const isLatest = function() {
+      return seq === state.loadSeq[view];
+    };
     const request = (async function() {
       try {
         const data = await fetchJsonWithParams(view, forceRefresh ? { refresh: '1' } : {});
+        if (!isLatest()) {
+          return;
+        }
         setViewPayload(view, data);
         state.fresh[view] = true;
         state.cacheFetchedAt[view] = Date.now();
@@ -1185,6 +1207,9 @@
         }
       } catch (error) {
         stopProgress();
+        if (!isLatest()) {
+          return;
+        }
         const latest = getViewPayload(view);
         if (latest && error.kind !== 'denied') {
           renderViewFromPayload(view, latest);
@@ -1194,7 +1219,9 @@
         setLoadingText(loadingEl, '');
         renderEmptyNote(contentEl, error.kind === 'denied' ? '🔒' : '📶', describeLoadError(error, false));
       } finally {
-        state.inFlightLoads[view] = null;
+        if (isLatest()) {
+          state.inFlightLoads[view] = null;
+        }
       }
     })();
 

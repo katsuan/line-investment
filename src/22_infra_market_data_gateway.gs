@@ -10,8 +10,12 @@ function getMarketQuoteByTicker_(ticker, options) {
   let lastResult = null;
 
   for (let index = 0; index < marketTickers.length; index += 1) {
-    const candidateMarketTicker = marketTickers[index];
-    const result = fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, candidateMarketTicker);
+    let result = null;
+    try {
+      result = fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, marketTickers[index]);
+    } catch (error) {
+      continue; // つながらなかった（時間切れなど）。ほかの市場をためす
+    }
     lastResult = result;
 
     if (result.quote && buildMarketDataFetchStatus_(result.quote) === 'parsed') {
@@ -344,11 +348,6 @@ function looksLikeMetricValueLine_(line) {
   );
 }
 
-function extractGoogleFinanceText_(text, pattern) {
-  const match = text.match(pattern);
-  return match && match[1] ? decodeHtmlEntities_(match[1].trim()) : '';
-}
-
 function normalizeScrapedNumber_(value) {
   const normalized = String(value || '')
     .replace(/[￥¥$,]/g, '')
@@ -376,10 +375,6 @@ function decodeHtmlEntities_(text) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
-}
-
-function escapeForRegex_(text) {
-  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function buildMarketDataFetchStatus_(quote) {

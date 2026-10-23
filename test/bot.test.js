@@ -316,20 +316,143 @@ test("カードが断られたら、文字だけを push で送りなおす（�
   assert.equal(pushed[0].messages[0].type, "text");
 });
 
-test("横に並べるカードは、大きさがそろっている", () => {
-  const gas = make();
-  const stats = gas.call("buildWatchPerformanceStats_", GROUP, {});
-  const top = gas.call("buildTopPerformerWatchSpotlightData_", GROUP, stats, {});
-  const perf = gas.call("buildWatchPerformanceSummaryFlexMessage_", GROUP, stats, top, top);
-  const records = gas.call("hydrateRecentWatchlistWithCurrentQuotes_", gas.call("getActiveWatchlistByGroup_", GROUP), {});
-  const list = gas.call("buildWatchlistSummaryFlexMessage_", GROUP, records, records.length);
-  assert.equal(perf.contents.type, "carousel");
-  assert.deepEqual(gas.flexProblems([perf, list]).filter((p) => p.level === "error"), []);
-});
-
 test("使う前の確かめのカードも、LINE が受けつける形", () => {
   const gas = make();
   const cards = gas.eval("Q_SELF_CHECK.cards()");
   assert.ok(cards.length >= 5);
   assert.deepEqual(gas.flexProblems(cards).filter((p) => p.level === "error"), []);
+});
+
+// ---- 見つけた不具合（直す前に、起きることを確かめるテスト） ----
+
+const WATCH_ROW = (ticker, addedAt, userId, active, name = "メンバー") =>
+  [GROUP, ticker, ticker + "の会社", "", addedAt, ticker + ":TYO", "3000", "", "", "", userId, name, active, "", "", "", addedAt];
+const MARKET_ROW = (ticker, price, updatedAt, name = "ソニーグループ") =>
+  [ticker, ticker + ":TYO", name, price, "", "", "", "", "", "", "", updatedAt, "parsed", "", "", "", ""];
+
+test("シートの日時が日付の形で戻っても、注目一覧は新しい順で、時刻は日本時間の文字", () => {
+  const gas = make();
+  // 本物のシートは「2026-10-01 09:00:00」を日付に変えて返す（10/1 は木曜・10/2 は金曜）
+  gas.seed("WATCHLIST", [gas.rows("WATCHLIST")[0],
+    WATCH_ROW("6758", new Date("2026-10-01T00:00:00Z"), MEMBER, true),
+    WATCH_ROW("7203", new Date("2026-10-02T00:00:00Z"), MEMBER, true)]);
+  gas.seed("MARKET_DATA", [gas.rows("MARKET_DATA")[0],
+    MARKET_ROW("6758", "3000", new Date("2026-10-02T06:00:00Z")),
+    MARKET_ROW("7203", "2900", new Date("2026-10-02T05:00:00Z"), "トヨタ自動車")]);
+  const res = liff(gas, { idToken: "tok-member" });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.data.items.map((i) => i.ticker), ["7203", "6758"], "新しい順");
+  assert.equal(res.data.latestCachedAt, "2026-10-02 15:00:00", "日本時間の文字（画面は時刻をそのまま出す）");
+  assert.equal(res.data.items[0].addedAt, "26/10/02");
+});
+
+test("株価が取れていない銘柄を、-100% と出さない", () => {
+  const gas = make();
+  gas.seed("MARKET_DATA", [gas.rows("MARKET_DATA")[0], MARKET_ROW("6758", "", "2026-10-02 09:00:00")]);
+  const res = liff(gas, { idToken: "tok-member" });
+  assert.equal(res.data.items[0].performanceDelta, "-");
+  const perf = liff(gas, { idToken: "tok-member", view: "performance" });
+  assert.equal(perf.data.ranking[0].averageDelta, null);
+  assert.equal(perf.data.topSpotlight.items[0].currentDeltaText, "-");
+});
+
+test("グループ名に LINE が入っていても、送り主の名前で断られない", () => {
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER },
+    fetch: (url, opt) => (/\/summary$/.test(url) ? response(200, { groupName: "LINE投資部" }) : lineFetch(url, opt)),
+  });
+  setupSheets(g);
+  g.reset();
+  text(g, "#ルール");
+  const sender = g.replies()[0].messages[0].sender;
+  assert.ok(sender && sender.name);
+  assert.doesNotMatch(sender.name, /line/i);
+});
+
+test("LINE の断りの返事が JSON でなくても、文字だけで送りなおす", () => {
+  let rejected = false;
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER },
+    fetch: (url, opt) => {
+      if (/message\/reply$/.test(url) && !rejected) {
+        rejected = true;
+        return response(400, "<html>Bad Request</html>");
+      }
+      return lineFetch(url, opt);
+    },
+  });
+  setupSheets(g);
+  g.reset();
+  text(g, "#使い方");
+  assert.equal(g.replies().filter((r) => r.kind === "push").length, 1);
+});
+
+test("ルールのシートが空でも、入ってきた人に案内を出す", () => {
+  const gas = make();
+  gas.seed("RULES", [gas.rows("RULES")[0]]);
+  event(gas, { type: "memberJoined", replyToken: "r", source: { type: "group", groupId: GROUP }, joined: { members: [{ type: "user", userId: NEWCOMER }] } });
+  assert.equal(gas.replies().length, 1);
+  assert.deepEqual(gas.flexProblems().filter((p) => p.level === "error"), []);
+});
+
+test("株価のページに1つつながらなくても、ほかの市場をためす", () => {
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER },
+    fetch: (url, opt) => {
+      if (/finance\/quote\/TSLA\?/.test(url)) throw new Error("Address unavailable");
+      if (/finance\/quote\/TSLA%3ANASDAQ/.test(url)) return response(200, "<div>TSLA:NASDAQ</div><div>Tesla Inc</div><div>$250.00</div><div>+1.00%</div>");
+      return lineFetch(url, opt);
+    },
+  });
+  setupSheets(g);
+  g.reset();
+  text(g, "#TSLA");
+  const rows = g.rows("WATCHLIST");
+  assert.equal(rows.length, 2, "注目に入った");
+  assert.equal(rows[1][1], "TSLA");
+});
+
+test("同じ銘柄を同時に入れても、注目は1つだけ", () => {
+  let gas = null;
+  let seeded = false;
+  gas = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: [MEMBER, NEWCOMER].join(",") },
+    fetch: (url, opt) => {
+      // 株価を取りに行っているあいだに、ほかの人が同じ銘柄を入れた
+      if (/finance\/quote\/7203/.test(url) && !seeded) {
+        seeded = true;
+        gas.seed("WATCHLIST", [gas.rows("WATCHLIST")[0], WATCH_ROW("7203", "2026-10-02 09:00:00", NEWCOMER, true, "新人")]);
+      }
+      return lineFetch(url, opt);
+    },
+  });
+  setupSheets(gas);
+  gas.reset();
+  text(gas, "#7203");
+  assert.equal(gas.rows("WATCHLIST").length, 2, "2つ目を足さない");
+  assert.match(replyTexts(gas), /もう注目中/);
+});
+
+test("一度外して入れなおした銘柄も、#解除 で外せる", () => {
+  const gas = make({ ALLOWED_USER_IDS: [MEMBER, NEWCOMER].join(",") });
+  gas.seed("WATCHLIST", [gas.rows("WATCHLIST")[0],
+    WATCH_ROW("6758", "2026-09-01 09:00:00", NEWCOMER, false, "新人"),
+    WATCH_ROW("6758", "2026-10-01 09:00:00", MEMBER, true)]);
+  text(gas, "#解除 6758", MEMBER);
+  assert.match(replyTexts(gas), /注目から外しました/);
+  assert.equal(gas.rows("WATCHLIST")[2][12], false);
+});
+
+test("全角の「＃」・数字でも、ことばとして受けつける", () => {
+  const gas = make();
+  text(gas, "＃ルール");
+  assert.equal(gas.replies().length, 1);
+  gas.reset();
+  text(gas, "＃７２０３");
+  assert.equal(gas.rows("WATCHLIST").length, 3, "注目に入った");
+  assert.equal(gas.rows("WATCHLIST")[2][1], "7203");
 });

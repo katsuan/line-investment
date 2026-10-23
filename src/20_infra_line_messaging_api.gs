@@ -133,11 +133,11 @@ function callLineApi_(method, url, payload) {
   const response = UrlFetchApp.fetch(url, options);
   const statusCode = response.getResponseCode();
   const text = response.getContentText();
-  const body = text ? JSON.parse(text) : {};
 
   if (statusCode >= 200 && statusCode < 300) {
-    return body;
+    return text ? (parseJsonSafely_(text) || {}) : {};
   }
+  // 断りの返事は JSON でないこともある。番号（400 など）がわかるように、そのまま知らせる
 
   throw new Error('LINE API error ' + statusCode + ': ' + text);
 }
@@ -160,13 +160,18 @@ function buildLineSenderByGroup_(groupId) {
   return sender;
 }
 
+// 送り主の名前は20字まで。「LINE」などの言葉は使えない（入っていると返事ごと断られる）ので、決まりの名前にする
 function normalizeLineSenderName_(value) {
   const fallback = normalizeLineSenderNameByLength_(getLineSenderName_()) || 'Bot';
-  const text = String(value || '').trim();
-  if (!text) {
-    return fallback;
+  const text = normalizeLineSenderNameByLength_(value);
+  if (!text || !isUsableLineSenderName_(text)) {
+    return isUsableLineSenderName_(fallback) ? fallback : 'Bot';
   }
-  return normalizeLineSenderNameByLength_(text) || fallback;
+  return text;
+}
+
+function isUsableLineSenderName_(name) {
+  return !/line/i.test(String(name || ''));
 }
 
 function normalizeLineSenderNameByLength_(value) {

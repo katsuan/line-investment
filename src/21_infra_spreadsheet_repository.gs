@@ -45,7 +45,7 @@ function getTableData_(sheetName) {
 function toRecord_(headers, row) {
   const record = {};
   headers.forEach(function(header, index) {
-    record[header] = row[index];
+    record[header] = toJstDateTimeText_(row[index]);
   });
   return record;
 }
@@ -170,7 +170,8 @@ function getEnabledRule_() {
 function getCurrentRuleForGroup_(groupId) {
   const group = getGroupRecord_(groupId);
   const version = group && group.ruleVersion ? group.ruleVersion : DEFAULT_RULE_VERSION_;
-  return getRuleByVersion_(version) || getEnabledRule_();
+  // ルールのシートが空でも、案内は出す（決まりのルールを使う）
+  return getRuleByVersion_(version) || getEnabledRule_() || buildDefaultRuleRecord_();
 }
 
 function getUnconfirmedMembers_(groupId, ruleVersion) {
@@ -179,11 +180,16 @@ function getUnconfirmedMembers_(groupId, ruleVersion) {
   });
 }
 
-function createWatchlistRecord_(watchlistRecord) {
+// 注目を1つ足す。同じグループで同じ銘柄がもう注目中なら足さず、それを返す（同時に入れたとき2つにしない）
+function createWatchlistRecordIfAbsent_(watchlistRecord) {
   return withScriptLock_(function() {
+    const existing = getActiveWatchlistRecordByTicker_(watchlistRecord.groupId, watchlistRecord.ticker);
+    if (existing) {
+      return { record: existing, created: false };
+    }
+
     const table = getTableData_(SHEET_NAMES_.WATCHLIST);
     const timestamp = nowJst_();
-
     const record = Object.assign({
       tickerName: '',
       note: '',
@@ -197,7 +203,7 @@ function createWatchlistRecord_(watchlistRecord) {
       updatedAt: timestamp,
     });
     table.sheet.appendRow(recordToRow_(table.headers, record));
-    return record;
+    return { record: record, created: true };
   });
 }
 
@@ -211,18 +217,7 @@ function getActiveWatchlistByGroup_(groupId) {
     });
 }
 
-function getWatchlistRecordByTicker_(groupId, ticker) {
-  const normalizedTicker = normalizeTickerCode_(ticker);
-  const rows = getTableData_(SHEET_NAMES_.WATCHLIST).rows
-    .filter(function(row) {
-      return String(row.groupId) === String(groupId) && String(row.ticker) === String(normalizedTicker);
-    })
-    .sort(function(a, b) {
-      return String(a.addedAt || '').localeCompare(String(b.addedAt || ''));
-    });
-  return rows.length > 0 ? rows[0] : null;
-}
-
+// いま注目中のうち、いちばん古いもの（ないときは null）
 function getActiveWatchlistRecordByTicker_(groupId, ticker) {
   const normalizedTicker = normalizeTickerCode_(ticker);
   const rows = getTableData_(SHEET_NAMES_.WATCHLIST).rows

@@ -2,7 +2,12 @@ function nowJst_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 }
 
+// 「2026-10-01 09:00:00」（日本時間）を Date に。シートから日付の形で戻ったものも受けつける。
+// 日本時間として読むので、スクリプトのタイムゾーンに左右されない
 function parseJstDateTime_(value) {
+  if (isValidDate_(value)) {
+    return value;
+  }
   const text = String(value || '').trim();
   if (!text) {
     return null;
@@ -12,14 +17,23 @@ function parseJstDateTime_(value) {
     const parsed = new Date(text);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
-  return new Date(
+  return new Date(Date.UTC(
     Number(matched[1]),
     Number(matched[2]) - 1,
     Number(matched[3]),
-    Number(matched[4]),
+    Number(matched[4]) - 9,
     Number(matched[5]),
     Number(matched[6])
-  );
+  ));
+}
+
+function isValidDate_(value) {
+  return Object.prototype.toString.call(value) === '[object Date]' && !Number.isNaN(value.getTime());
+}
+
+// シートの日時は、書いた文字が日付に変わって戻ることがある。並べる・比べる・画面に出すため、日本時間の文字にそろえる
+function toJstDateTimeText_(value) {
+  return isValidDate_(value) ? Utilities.formatDate(value, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss') : value;
 }
 
 function createOkTextOutput_() {
@@ -82,15 +96,6 @@ function buildErrorMessage_(error) {
     return '';
   }
   return error.stack || error.message || String(error);
-}
-
-function extractStockCommandArgument_(text, commandPrefix) {
-  const normalized = normalizeCommandText_(text);
-  if (normalized.indexOf(commandPrefix) !== 0) {
-    return '';
-  }
-
-  return normalized.slice(commandPrefix.length).trim();
 }
 
 function normalizeTickerCode_(rawTicker) {
@@ -181,26 +186,31 @@ function formatPercent_(value) {
   return Utilities.formatString('%s%%', number.toFixed(2));
 }
 
-function formatSignedPriceDelta_(currentValue, baseValue) {
-  const current = Number(currentValue);
-  const base = Number(baseValue);
-  if (Number.isNaN(current) || Number.isNaN(base)) {
+// 数の文字を数に。空・null は NaN（0 として計算しない）
+function toNumberOrNaN_(value) {
+  if (value === '' || value === null || typeof value === 'undefined') {
+    return NaN;
+  }
+  return Number(value);
+}
+
+// 基準からの変化（%）。計算できないときは null
+function calcPercentDelta_(current, base) {
+  if (Number.isNaN(current) || Number.isNaN(base) || base === 0) {
+    return null;
+  }
+  return ((current - base) / base) * 100;
+}
+
+function formatSignedPercent_(deltaPercent) {
+  if (deltaPercent === null) {
     return '-';
   }
-  const delta = current - base;
-  const sign = delta > 0 ? '+' : '';
-  return sign + formatDecimalWithCommas_(delta, 2);
+  return (deltaPercent > 0 ? '+' : '') + deltaPercent.toFixed(2) + '%';
 }
 
 function formatSignedPercentDeltaFromBase_(currentValue, baseValue) {
-  const current = Number(currentValue);
-  const base = Number(baseValue);
-  if (Number.isNaN(current) || Number.isNaN(base) || base === 0) {
-    return '-';
-  }
-  const deltaPercent = ((current - base) / base) * 100;
-  const sign = deltaPercent > 0 ? '+' : '';
-  return sign + deltaPercent.toFixed(2) + '%';
+  return formatSignedPercent_(calcPercentDelta_(toNumberOrNaN_(currentValue), toNumberOrNaN_(baseValue)));
 }
 
 function parseComparableScaledNumber_(value) {
@@ -235,14 +245,7 @@ function parseComparableScaledNumber_(value) {
 }
 
 function formatSignedPercentDeltaFromBaseScaled_(currentValue, baseValue) {
-  const current = parseComparableScaledNumber_(currentValue);
-  const base = parseComparableScaledNumber_(baseValue);
-  if (Number.isNaN(current) || Number.isNaN(base) || base === 0) {
-    return '-';
-  }
-  const deltaPercent = ((current - base) / base) * 100;
-  const sign = deltaPercent > 0 ? '+' : '';
-  return sign + deltaPercent.toFixed(2) + '%';
+  return formatSignedPercent_(calcPercentDelta_(parseComparableScaledNumber_(currentValue), parseComparableScaledNumber_(baseValue)));
 }
 
 function toLineText_(value, fallback) {
@@ -259,35 +262,18 @@ function formatDecimalWithCommas_(number, fractionDigits) {
   return parts.length > 1 ? integerPart + '.' + parts[1] : integerPart;
 }
 
-function formatDateTimeDisplay_(value) {
-  if (!value) {
-    return '-';
-  }
-  if (Object.prototype.toString.call(value) === '[object Date]' && !Number.isNaN(value.getTime())) {
-    return Utilities.formatDate(value, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-  }
-  const text = String(value).trim();
-  const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime()) && /GMT|UTC|[A-Z][a-z]{2} [A-Z][a-z]{2}/.test(text)) {
-    return Utilities.formatDate(parsed, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
-  }
-  return text;
-}
-
+// 「26/10/01」の形に（日本時間の日付。夜中の時刻でも、日付がずれないように文字のまま読む）
 function formatDateDisplayOnly_(value) {
   if (!value) {
     return '-';
   }
-  if (Object.prototype.toString.call(value) === '[object Date]' && !Number.isNaN(value.getTime())) {
-    return Utilities.formatDate(value, 'Asia/Tokyo', 'yy/MM/dd');
-  }
-  const text = String(value).trim();
-  const parsed = new Date(text);
-  if (!Number.isNaN(parsed.getTime())) {
-    return Utilities.formatDate(parsed, 'Asia/Tokyo', 'yy/MM/dd');
-  }
+  const text = String(toJstDateTimeText_(value)).trim();
   const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return matched ? matched[1].slice(2) + '/' + matched[2] + '/' + matched[3] : text;
+  if (matched) {
+    return matched[1].slice(2) + '/' + matched[2] + '/' + matched[3];
+  }
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text : Utilities.formatDate(parsed, 'Asia/Tokyo', 'yy/MM/dd');
 }
 
 function isSupportedWatchTickerCommand_(text) {
