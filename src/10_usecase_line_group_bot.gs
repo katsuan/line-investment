@@ -65,7 +65,9 @@ function handleMemberJoined_(event) {
   });
 
   const rule = getCurrentRuleForGroup_(groupId);
-  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames, targetUserIds)], groupId);
+  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames, targetUserIds)], groupId, {
+    quickReply: buildRuleAgreementQuickReply_(rule.version, targetUserIds),
+  });
   logEventResult_(event, 'member_joined_reply', 'success', 'welcome flex sent', '');
 }
 
@@ -81,6 +83,10 @@ function handlePostback_(event) {
   }
 
   if (params.action !== 'agree_rules') {
+    sendReplyMessage_(event.replyToken, [{
+      type: 'text',
+      text: 'このボタンは、いまは使えません。「#使い方」を送ると、できることが見られます。',
+    }], groupId);
     logEventResult_(event, 'postback_ignored', 'ignored', 'unsupported action', '');
     return;
   }
@@ -90,16 +96,40 @@ function handlePostback_(event) {
     return;
   }
 
+  // 古いボタン・ほかの人のボタンが押されても黙らず、やさしく返す（H2）
   const targetUserIds = (params.targetUserIds || '').split(',').filter(function(id) {
     return !!id;
   });
   if (targetUserIds.length > 0 && targetUserIds.indexOf(userId) < 0) {
+    sendReplyMessage_(event.replyToken, [{
+      type: 'text',
+      text: 'このボタンは、案内した人のためのものです。\nルールは「#ルール」で見られます。',
+    }], groupId);
     logEventResult_(event, 'postback_ignored', 'ignored', 'tapped by non-target user', userId);
     return;
   }
 
+  const currentRule = getCurrentRuleForGroup_(groupId) || { version: DEFAULT_RULE_VERSION_ };
   const requestedRuleVersion = Math.floor(Number(params.ruleVersion || DEFAULT_RULE_VERSION_));
-  const ruleVersion = requestedRuleVersion > 0 && requestedRuleVersion < 10000 ? requestedRuleVersion : DEFAULT_RULE_VERSION_;
+  if (requestedRuleVersion !== Number(currentRule.version)) {
+    const actor = getActorProfileForGroup_(groupId, userId);
+    sendReplyMessage_(event.replyToken, [
+      { type: 'text', text: 'ルールが新しくなりました。読んでから、もう一度「確認しました」を押してね。' },
+      buildRuleConfirmationPromptFlexMessage_(currentRule, actor.displayName ? [actor.displayName] : [], [userId]),
+    ], groupId, { quickReply: buildRuleAgreementQuickReply_(currentRule.version, [userId]) });
+    logEventResult_(event, 'agree_rules', 'ignored', 'old rule version', String(requestedRuleVersion));
+    return;
+  }
+  const ruleVersion = Number(currentRule.version);
+
+  if (hasAgreedCurrentRule_(groupId, userId, ruleVersion)) {
+    sendReplyMessage_(event.replyToken, [{
+      type: 'text',
+      text: 'ルールの確認は、もう記録しています。そのまま使えます。',
+    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    logEventResult_(event, 'agree_rules', 'ignored', 'already agreed', '');
+    return;
+  }
 
   let displayName = '';
   try {
@@ -183,7 +213,9 @@ function handleMessage_(event) {
       const actor = getActorProfileForGroup_(groupId, userId);
       const rule = getCurrentRuleForGroup_(groupId);
       const displayNames = actor.displayName ? [actor.displayName] : [];
-      sendReplyMessage_(event.replyToken, [buildRuleConfirmationPromptFlexMessage_(rule, displayNames, [userId])], groupId);
+      sendReplyMessage_(event.replyToken, [buildRuleConfirmationPromptFlexMessage_(rule, displayNames, [userId])], groupId, {
+        quickReply: buildRuleAgreementQuickReply_(rule.version, [userId]),
+      });
       logEventResult_(event, 'message_rule_prompt', 'success', 'rule confirmation prompted for unallowed user', text);
       return;
     }
@@ -198,8 +230,11 @@ function handleMessage_(event) {
 
   if (text === '#ルール') {
     const rule = getCurrentRuleForGroup_(groupId);
-    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId,
-      isAccessAllowed_(groupId, userId) ? { quickReply: buildMainQuickReply_(groupId) } : {});
+    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, {
+      quickReply: isAccessAllowed_(groupId, userId)
+        ? buildMainQuickReply_(groupId)
+        : buildRuleAgreementQuickReply_(rule.version, [userId]),
+    });
     logEventResult_(event, 'command_rules', 'success', 'rule flex sent', '');
     return;
   }
@@ -455,6 +490,15 @@ function isWatchRemovalCommand_(text) {
 function extractTickerFromWatchRemovalCommand_(text) {
   const matched = String(text || '').trim().match(/^#解除\s+([A-Z0-9.-]{1,10})$/i);
   return matched ? normalizeTickerCode_(matched[1]) : '';
+}
+
+function hasAgreedCurrentRule_(groupId, userId, ruleVersion) {
+  if (getAllowedUserIds_().indexOf(String(userId)) < 0) {
+    return false;
+  }
+  const rows = getTableData_(SHEET_NAMES_.MEMBERS).rows;
+  const rowIndex = findRowIndexByKeys_(rows, ['groupId', 'userId'], { groupId: groupId, userId: userId });
+  return rowIndex >= 0 && Number(rows[rowIndex].agreedRuleVersion) === Number(ruleVersion);
 }
 
 function isAccessAllowed_(groupId, userId) {

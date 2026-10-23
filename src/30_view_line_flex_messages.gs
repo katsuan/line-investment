@@ -20,7 +20,6 @@ function buildJoinGuideTextMessage_() {
 
 function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '新しいメンバーさん';
-  const agreementButtonLabel = buildAgreementButtonLabel_(displayNames);
   return {
     type: 'flex',
     altText: '投資情報共有グループへようこそ',
@@ -75,21 +74,19 @@ function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
           },
         ],
       },
+      // 確認は1回きりなので、カードにボタンは置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）
       footer: {
         type: 'box',
         layout: 'vertical',
-        spacing: 'sm',
         contents: [
           {
-            type: 'button',
-            style: 'primary',
+            type: 'text',
+            text: '👇 下のボタンからえらんでね',
+            size: 'sm',
+            weight: 'bold',
             color: BOT_ACCENT_COLOR_,
-            action: {
-              type: 'postback',
-              label: agreementButtonLabel,
-              data: buildAgreeRulesPostbackData_(rule.version, targetUserIds),
-              displayText: agreementButtonLabel,
-            },
+            align: 'center',
+            wrap: true,
           },
         ],
       },
@@ -99,7 +96,6 @@ function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
 
 function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '参加者さん';
-  const agreementButtonLabel = buildAgreementButtonLabel_(displayNames);
   return {
     type: 'flex',
     altText: 'ルール確認のお願い',
@@ -115,7 +111,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserI
         contents: [
           {
             type: 'text',
-            text: namesText + '、使う前に、下のルールを読んで「確認しました」を押してね。',
+            text: namesText + '、使う前に、ルールを読んで、下の「✅ ルールを確認しました」を押してね。',
             size: 'sm',
             wrap: true,
           },
@@ -154,21 +150,19 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserI
           },
         ],
       },
+      // 確認は1回きりなので、カードにボタンは置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）
       footer: {
         type: 'box',
         layout: 'vertical',
-        spacing: 'sm',
         contents: [
           {
-            type: 'button',
-            style: 'primary',
+            type: 'text',
+            text: '👇 下のボタンからえらんでね',
+            size: 'sm',
+            weight: 'bold',
             color: BOT_ACCENT_COLOR_,
-            action: {
-              type: 'postback',
-              label: agreementButtonLabel,
-              data: buildAgreeRulesPostbackData_(rule.version, targetUserIds),
-              displayText: agreementButtonLabel,
-            },
+            align: 'center',
+            wrap: true,
           },
         ],
       },
@@ -191,18 +185,22 @@ function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
   return data;
 }
 
-function buildAgreementButtonLabel_(displayNames) {
-  if (displayNames.length === 1) {
-    // ボタンの文字は 40 字まで（LINE の名前は 20 字まで。念のため切る）
-    const name = Array.from(String(displayNames[0] || '')).slice(0, 20).join('');
-    return '→' + name + 'さん ルール確認しました';
-  }
-
-  if (displayNames.length > 1) {
-    return '→参加者のみなさん ルール確認しました';
-  }
-
-  return '→参加者さん ルール確認しました';
+// ルールの確認のクイックリプライ（返事の最後のメッセージに付ける。グループのみんなに見えるので、押せる人は postback の中で決める）
+function buildRuleAgreementQuickReply_(ruleVersion, targetUserIds) {
+  const label = '✅ ルールを確認しました';
+  return {
+    items: [
+      {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: label,
+          data: buildAgreeRulesPostbackData_(ruleVersion, targetUserIds),
+          displayText: label,
+        },
+      },
+    ],
+  };
 }
 
 function buildRuleFlexMessage_(rule) {

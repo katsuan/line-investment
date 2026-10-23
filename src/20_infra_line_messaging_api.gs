@@ -1,5 +1,6 @@
 // 返事を送る。options.quickReply があれば、最後のメッセージに付ける（H3）。
-// カードが受けつけられなかったときは、黙らずに文字だけで返し、原因は LAST_LINE_ERRORS と EVENT_LOG に残す（H5）
+// カードが受けつけられなかったときは、黙らずに文字だけで送り、原因は LAST_LINE_ERRORS と EVENT_LOG に残す（H5）。
+// 返事の合図（reply token）は1回しか使えないので、文字だけの送りなおしは push で（ユーザーの操作1回につき1回まで。G10）
 function sendReplyMessage_(replyToken, messages, groupId, options) {
   if (!replyToken || !messages || messages.length === 0) {
     return;
@@ -34,8 +35,11 @@ function sendReplyMessage_(replyToken, messages, groupId, options) {
     }).filter(function(text) {
       return !!text;
     }).join('\n\n') || 'うまく表示できませんでした。';
-    callLineApi_('post', 'https://api.line.me/v2/bot/message/reply', {
-      replyToken: replyToken,
+    if (!groupId) {
+      throw error;
+    }
+    callLineApi_('post', 'https://api.line.me/v2/bot/message/push', {
+      to: groupId,
       messages: [Object.assign(attachSenderToLineMessage_({
         type: 'text',
         text: (fallbackText + '\n\n（カードを出せなかったので、文字だけで返しました）').slice(0, 4900),
@@ -46,7 +50,7 @@ function sendReplyMessage_(replyToken, messages, groupId, options) {
       groupId: groupId || '',
       action: 'reply_flex_fallback',
       result: 'error',
-      detail: 'flex rejected, sent text instead',
+      detail: 'flex rejected, pushed text instead',
       errorMessage: buildErrorMessage_(error).slice(0, 1000),
     });
   }

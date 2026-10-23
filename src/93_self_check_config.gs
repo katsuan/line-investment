@@ -32,7 +32,9 @@ var Q_SELF_CHECK = {
     return [
       buildJoinGuideTextMessage_(),
       buildRuleFlexMessage_(rule),
-      buildRuleConfirmationPromptFlexMessage_(rule, ['テスト'], ['U00000000000000000000000000000000']),
+      Object.assign(buildRuleConfirmationPromptFlexMessage_(rule, ['テスト'], ['U00000000000000000000000000000000']), {
+        quickReply: buildRuleAgreementQuickReply_(rule.version, ['U00000000000000000000000000000000']),
+      }),
       buildUsageGuideFlexMessage_({ watchlistUrl: url }),
       buildBotSettingsFlexMessage_(null, { showAccessCounts: false }),
       buildLiffLaunchFlexMessage_(url, 'watchlist'),
