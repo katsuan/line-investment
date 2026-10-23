@@ -258,10 +258,22 @@ test("カードのボタンは、あとで押されても困らないものだ�
   // 入ってきた人・未確認の人には、最後のメッセージのクイックリプライに「確認しました」
   const prompts = gas.replies().slice(-2).map((r) => r.messages[r.messages.length - 1]);
   prompts.forEach((m) => {
-    assert.match(JSON.stringify(m.contents), /下のボタンからえらんでね/);
+    // クイックリプライが消えたあとでも通じる文と、出しなおすボタン（#ルール を送るだけ）
+    assert.match(JSON.stringify(m.contents), /出していないとき|出ていないとき/);
+    assert.ok(cardActions([m]).some((a) => a.type === "message" && a.text === "#ルール"));
     assert.ok(m.quickReply.items.some((it) => /^action=agree_rules/.test(it.action.data || "")));
     assert.deepEqual(gas.flexProblems([m]).filter((p) => p.level === "error"), []);
   });
+});
+
+test("カードの「📜 ルールを確認する」で、確認のクイックリプライが出なおす", () => {
+  const gas = make();
+  text(gas, "#ルール", NEWCOMER);
+  const last = gas.lastMessages().slice(-1)[0];
+  assert.ok(last.quickReply.items.some((it) => it.action.data === `action=agree_rules&ruleVersion=1&targetUserIds=${encodeURIComponent(NEWCOMER)}`));
+  gas.reset();
+  text(gas, "#ルール", MEMBER);
+  assert.ok(!JSON.stringify(gas.lastMessages()).includes("agree_rules"), "確認ずみの人には出さない");
 });
 
 test("古いボタン・ほかの人のボタン・2回目は、記録しなおさずにやさしく返す", () => {

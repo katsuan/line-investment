@@ -230,11 +230,15 @@ function handleMessage_(event) {
 
   if (text === '#ルール') {
     const rule = getCurrentRuleForGroup_(groupId);
-    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, {
-      quickReply: isAccessAllowed_(groupId, userId)
-        ? buildMainQuickReply_(groupId)
-        : buildRuleAgreementQuickReply_(rule.version, [userId]),
-    });
+    if (isAccessAllowed_(groupId, userId)) {
+      sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    } else {
+      // まだ確認していない人（ルールのカードの「📜 ルールを確認する」から来る）には、確認のクイックリプライを出しなおす
+      const actor = getActorProfileForGroup_(groupId, userId);
+      sendReplyMessage_(event.replyToken, [
+        buildRuleConfirmationPromptFlexMessage_(rule, actor.displayName ? [actor.displayName] : [], [userId]),
+      ], groupId, { quickReply: buildRuleAgreementQuickReply_(rule.version, [userId]) });
+    }
     logEventResult_(event, 'command_rules', 'success', 'rule flex sent', '');
     return;
   }

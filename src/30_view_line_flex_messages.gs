@@ -74,22 +74,7 @@ function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
           },
         ],
       },
-      // 確認は1回きりなので、カードにボタンは置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '👇 下のボタンからえらんでね',
-            size: 'sm',
-            weight: 'bold',
-            color: BOT_ACCENT_COLOR_,
-            align: 'center',
-            wrap: true,
-          },
-        ],
-      },
+      footer: buildRuleAgreementFooter_(),
     },
   };
 }
@@ -111,7 +96,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserI
         contents: [
           {
             type: 'text',
-            text: namesText + '、使う前に、ルールを読んで、下の「✅ ルールを確認しました」を押してね。',
+            text: namesText + '、使う前に、ルールを読んで「確認しました」を押してね。',
             size: 'sm',
             wrap: true,
           },
@@ -150,22 +135,7 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserI
           },
         ],
       },
-      // 確認は1回きりなので、カードにボタンは置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          {
-            type: 'text',
-            text: '👇 下のボタンからえらんでね',
-            size: 'sm',
-            weight: 'bold',
-            color: BOT_ACCENT_COLOR_,
-            align: 'center',
-            wrap: true,
-          },
-        ],
-      },
+      footer: buildRuleAgreementFooter_(),
     },
   };
 }
@@ -183,6 +153,26 @@ function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
     }
   }
   return data;
+}
+
+// ルールの確認は1回きりなので、カードには置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）。
+// クイックリプライは次のメッセージで消えるので、カードには、あとで見てもわかる文と、出しなおすボタン（#ルール を送るだけ）を置く
+function buildRuleAgreementFooter_() {
+  return {
+    type: 'box',
+    layout: 'vertical',
+    spacing: 'sm',
+    contents: [
+      {
+        type: 'text',
+        text: 'ルールを読んだら、トークのいちばん下に出る「✅ ルールを確認しました」を押してね。出ていないときは、このボタンで出しなおせます。',
+        size: 'xs',
+        color: '#666666',
+        wrap: true,
+      },
+      buildCardButton_('📜 ルールを確認する', { type: 'message', label: '📜 ルールを確認する', text: '#ルール' }, true),
+    ],
+  };
 }
 
 // ルールの確認のクイックリプライ（返事の最後のメッセージに付ける。グループのみんなに見えるので、押せる人は postback の中で決める）
