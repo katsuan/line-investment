@@ -21,7 +21,9 @@ function handleJoin_(event) {
     ruleVersion: DEFAULT_RULE_VERSION_,
   });
 
-  sendReplyMessage_(event.replyToken, [buildJoinGuideTextMessage_()], groupId);
+  sendReplyMessage_(event.replyToken, [buildJoinGuideFlexMessage_(buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
+    quickReply: buildMainQuickReply_(groupId),
+  });
   logEventResult_(event, 'join_reply', 'success', 'group registered and guide sent', '');
 }
 
@@ -86,7 +88,7 @@ function handlePostback_(event) {
     sendReplyMessage_(event.replyToken, [{
       type: 'text',
       text: 'このボタンは、いまは使えません。「#使い方」を送ると、できることが見られます。',
-    }], groupId);
+    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
     logEventResult_(event, 'postback_ignored', 'ignored', 'unsupported action', '');
     return;
   }
@@ -104,7 +106,7 @@ function handlePostback_(event) {
     sendReplyMessage_(event.replyToken, [{
       type: 'text',
       text: 'このボタンは、案内した人のためのものです。\nルールは「#ルール」で見られます。',
-    }], groupId);
+    }], groupId, { quickReply: buildMainQuickReply_(groupId, [buildMessageQuickReplyItem_('📜 ルールを見る', '#ルール')]) });
     logEventResult_(event, 'postback_ignored', 'ignored', 'tapped by non-target user', userId);
     return;
   }
@@ -228,10 +230,12 @@ function normalizeIncomingCommandText_(text) {
   return normalizeCommandText_(String(text || '').normalize('NFKC'));
 }
 
+// 文の返事。mainQuickReply で次の操作（H3）、quickReplyItems でその返事だけの操作を先頭に
 function replyText_(context, text, options) {
-  const withMainQuickReply = !!(options && options.mainQuickReply);
+  const settings = options || {};
+  const withQuickReply = !!(settings.mainQuickReply || settings.quickReplyItems);
   sendReplyMessage_(context.event.replyToken, [{ type: 'text', text: text }], context.groupId,
-    withMainQuickReply ? { quickReply: buildMainQuickReply_(context.groupId) } : undefined);
+    withQuickReply ? { quickReply: buildMainQuickReply_(context.groupId, settings.quickReplyItems) } : undefined);
 }
 
 // ルールの確認のカード＋「✅ ルールを確認しました」のクイックリプライ（押せるのは userIds の人だけ）
@@ -303,19 +307,9 @@ function handleRuleCommand_(context) {
 function handleUnconfirmedCommand_(context) {
   const rule = getCurrentRuleForGroup_(context.groupId);
   const members = getUnconfirmedMembers_(context.groupId, rule.version);
-  const message = members.length === 0
-    ? '全員が、いまのルールを確認しています。'
-    : [
-      'ルールをまだ確認していない人',
-      '',
-      members.map(function(member) {
-        return '・' + (member.displayName || '（名前がわからない人）');
-      }).join('\n'),
-      '',
-      'いまのルール：Version ' + rule.version,
-    ].join('\n');
-
-  replyText_(context, message);
+  sendReplyMessage_(context.event.replyToken, [buildUnconfirmedMembersFlexMessage_(rule, members)], context.groupId, {
+    quickReply: buildMainQuickReply_(context.groupId),
+  });
   logEventResult_(context.event, 'command_unconfirmed', 'success', 'unconfirmed members sent', '');
 }
 
@@ -370,7 +364,7 @@ function handleWatchRemovalCommand_(context) {
   if (!isAdminUser_(userId)) {
     const ownerUserId = String(activeRecord.addedByUserId || '');
     if (!ownerUserId || ownerUserId !== String(userId)) {
-      replyText_(context, ticker + ' を外せるのは、注目に入れた人か管理者だけです。');
+      replyText_(context, ticker + ' を外せるのは、注目に入れた人か管理者だけです。', { mainQuickReply: true });
       logEventResult_(event, 'command_watch_remove', 'ignored', 'not owner or admin', ticker);
       return;
     }
@@ -379,13 +373,16 @@ function handleWatchRemovalCommand_(context) {
   const actor = getActorProfileForGroup_(groupId, userId);
   const deactivatedRecord = deactivateWatchlistRecord_(groupId, ticker, userId, actor.displayName) || activeRecord;
   replyText_(context, '注目から外しました：' + ticker + '\n' +
-    toLineText_(deactivatedRecord.tickerName || activeRecord.tickerName || ticker, ticker), { mainQuickReply: true });
+    toLineText_(deactivatedRecord.tickerName || activeRecord.tickerName || ticker, ticker), {
+    // まちがえて外したとき、すぐ入れなおせる（#コード を送るだけなので、あとで押されても困らない）
+    quickReplyItems: [buildMessageQuickReplyItem_('↩ ' + ticker + ' を戻す', '#' + ticker)],
+  });
   logEventResult_(event, 'command_watch_remove', 'success', 'watchlist record deactivated', ticker);
 }
 
 function handleWatchRemoveAllCommand_(context) {
   if (!isAdminUser_(context.userId)) {
-    replyText_(context, '全部の注目を外すのは、管理者だけができます。\n自分の注目は「#解除 7203」のように外せます。');
+    replyText_(context, '全部の注目を外すのは、管理者だけができます。\n自分の注目は「#解除 7203」のように外せます。', { mainQuickReply: true });
     logEventResult_(context.event, 'command_watch_remove_all', 'ignored', 'admin only', '');
     return;
   }

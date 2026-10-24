@@ -30,7 +30,8 @@ var Q_SELF_CHECK = {
     const sampleQuote = { ticker: '7203', marketTicker: '7203:TYO', name: 'トヨタ自動車', price: '3100', changePercent: '1.2' };
     const url = getLiffAppBaseUrl_() || 'https://example.com/liff/';
     return [
-      buildJoinGuideTextMessage_(),
+      buildJoinGuideFlexMessage_(url),
+      buildUnconfirmedMembersFlexMessage_(rule, [{ displayName: 'テスト' }]),
       buildRuleFlexMessage_(rule),
       Object.assign(buildRuleConfirmationPromptFlexMessage_(rule, ['テスト']), {
         quickReply: buildRuleAgreementQuickReply_(rule.version, ['U00000000000000000000000000000000']),

@@ -1,20 +1,58 @@
-function buildJoinGuideTextMessage_() {
+// ボットがグループに入ったとき：何ができるかを1枚に（あとで見返せるようにカードで。H10）
+function buildJoinGuideFlexMessage_(watchlistUrl) {
+  return buildUsageGuideFlexMessage_({
+    leadText: 'Botを追加しました。新しく入った人に、グループの目的とルールを案内します。ルールを確認した人は、銘柄を注目に入れたり、一覧を見たりできます。',
+    watchlistUrl: watchlistUrl,
+    altText: 'Botを追加しました：#7203 で注目に入れる・#注目一覧 で一覧を見る・#ルール でルールを見る',
+    bandText: '👋 Botを追加しました',
+    showRuleRow: true,
+  });
+}
+
+// ルールをまだ確認していない人の一覧（H10：一覧はカードに）
+function buildUnconfirmedMembersFlexMessage_(rule, members) {
+  const names = members.map(function(member) {
+    return '・' + toLineText_(member.displayName, '（名前がわからない人）');
+  });
+  const isEmpty = members.length === 0;
   return {
-    type: 'text',
-    text: [
-      'Botを追加しました。',
-      '',
-      '新しく入った人に、グループの目的とルールを案内します。',
-      'ルールを確認した人は、銘柄を注目に入れたり、一覧を見たりできます。',
-      '',
-      'つかえる言葉',
-      '#7203 … 銘柄を注目に入れる',
-      '#注目一覧 … 一覧を画面で見る',
-      '#注目実績 … みんなの実績を見る',
-      '#解除 7203 … 自分の注目を外す',
-      '#ルール … ルールを見る',
-      '#使い方 … 使い方を見る',
-    ].join('\n'),
+    type: 'flex',
+    altText: isEmpty
+      ? '全員が、いまのルールを確認しています'
+      : 'ルールをまだ確認していない人：' + members.length + '人',
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, isEmpty ? '全員が確認しています' : 'まだ確認していない人 ' + members.length + '人'),
+      styles: buildCardBandStyles_(),
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'text',
+            text: isEmpty ? '全員が、いまのルールを確認しています。' : names.join('\n'),
+            size: 'sm',
+            wrap: true,
+          },
+          {
+            type: 'text',
+            text: '確認は、トークで「#ルール」を送ると出る「✅ ルールを確認しました」でできます。',
+            size: 'xs',
+            color: '#666666',
+            wrap: true,
+          },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          buildCardButton_('📜 ルールを見る', { type: 'message', text: '#ルール' }, true),
+        ],
+      },
+    },
   };
 }
 
@@ -301,6 +339,13 @@ function buildUsageGuideFlexMessage_(options) {
       quickActionText: '#解除 ',
     },
   ];
+  if (settings.showRuleRow) {
+    cards.push({
+      command: '#ルール',
+      detail: 'グループのルールを見る・確認する',
+      quickActionText: '#ルール',
+    });
+  }
 
   function buildKeyboardPrefillAction_(text) {
     return {
@@ -368,7 +413,7 @@ function buildUsageGuideFlexMessage_(options) {
   const bubble = {
     type: 'bubble',
     size: 'mega',
-    header: buildCardBandHeader_('❓ 使い方', '注目銘柄を、みんなで共有'),
+    header: buildCardBandHeader_(settings.bandText || '❓ 使い方', '注目銘柄を、みんなで共有'),
     styles: buildCardBandStyles_(),
     body: {
       type: 'box',
@@ -389,7 +434,7 @@ function buildUsageGuideFlexMessage_(options) {
 
   return {
     type: 'flex',
-    altText: '使い方：#7203 で注目に入れる・#注目一覧 で一覧を見る・#解除 7203 で外す',
+    altText: settings.altText || '使い方：#7203 で注目に入れる・#注目一覧 で一覧を見る・#解除 7203 で外す',
     contents: bubble,
   };
 }
@@ -638,8 +683,9 @@ function buildCardButton_(label, action, isPrimary) {
 }
 
 // 返事の最後に付ける、次にすること（H3）。グループのみんなに見える
-function buildMainQuickReply_(groupId) {
-  const items = [];
+// leadingItems：その返事にだけ付ける操作（先頭に出す）
+function buildMainQuickReply_(groupId, leadingItems) {
+  const items = (leadingItems || []).slice();
   const watchlistUrl = groupId ? buildLiffAppLaunchUrl_(groupId, 'watchlist') : '';
   const performanceUrl = groupId ? buildLiffAppLaunchUrl_(groupId, 'performance') : '';
   if (watchlistUrl) {
@@ -660,4 +706,9 @@ function buildMainQuickReply_(groupId) {
   });
   items.push({ type: 'action', action: { type: 'message', label: '❓ 使い方', text: '#使い方' } });
   return { items: items };
+}
+
+// クイックリプライの1つ：押すと文字を送る
+function buildMessageQuickReplyItem_(label, text) {
+  return { type: 'action', action: { type: 'message', label: label, text: text } };
 }

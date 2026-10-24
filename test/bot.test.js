@@ -456,3 +456,57 @@ test("全角の「＃」・数字でも、ことばとして受けつける", ()
   assert.equal(gas.rows("WATCHLIST").length, 3, "注目に入った");
   assert.equal(gas.rows("WATCHLIST")[2][1], "7203");
 });
+
+// ---- 文かカードか（ux.md H10） ----
+
+const lastMessage = (gas) => gas.lastMessages().slice(-1)[0];
+const isGenericAlt = (alt) => !alt || /カードが届きました|^Flex|^メッセージ$/.test(alt);
+
+test("ボットが入ったときの案内は、ことばを押して入れられるカード", () => {
+  const gas = make();
+  event(gas, { type: "join", replyToken: "r", source: { type: "group", groupId: GROUP } });
+  const m = lastMessage(gas);
+  assert.equal(m.type, "flex");
+  assert.ok(!isGenericAlt(m.altText));
+  assert.match(m.altText, /#7203/);
+  // 打ちこむ言葉を、押して入力欄に入れられる
+  assert.ok(cardActions([m]).some((a) => a.fillInText === "#ルール"));
+  assert.ok(m.quickReply && m.quickReply.items.length > 0);
+  assert.deepEqual(gas.flexProblems().filter((p) => p.level === "error"), []);
+});
+
+test("#未確認 は、名前の一覧のカード（いない人の ID は出さない）", () => {
+  const gas = make();
+  gas.seed("MEMBERS", [gas.rows("MEMBERS")[0], [GROUP, MEMBER, "メンバー", "", "", 1, true, ""], [GROUP, NEWCOMER, "新人さん", "", "", "", true, ""]]);
+  text(gas, "#未確認");
+  const m = lastMessage(gas);
+  assert.equal(m.type, "flex");
+  assert.match(m.altText, /1人/);
+  assert.match(JSON.stringify(m.contents), /新人さん/);
+  assert.doesNotMatch(JSON.stringify(m), new RegExp(NEWCOMER));
+  assert.deepEqual(cardActions([m]).filter((a) => !isSafeLater(a)), []);
+  gas.seed("MEMBERS", [gas.rows("MEMBERS")[0], [GROUP, MEMBER, "メンバー", "", "", 1, true, ""]]);
+  gas.reset();
+  text(gas, "#未確認");
+  assert.match(lastMessage(gas).altText, /全員/);
+  assert.deepEqual(gas.flexProblems().filter((p) => p.level === "error"), []);
+});
+
+test("注目を外したら「↩ コード を戻す」で入れなおせる", () => {
+  const gas = make();
+  text(gas, "#解除 6758");
+  const m = lastMessage(gas);
+  assert.equal(m.type, "text");
+  assert.ok(m.quickReply.items.some((it) => it.action.type === "message" && it.action.text === "#6758"));
+});
+
+test("文の返事にも、次に押せる操作が付いている", () => {
+  const gas = make({ ALLOWED_USER_IDS: [MEMBER, NEWCOMER].join(",") });
+  ["#解除 9999", "#解除"].forEach((t) => text(gas, t));
+  text(gas, "#解除 6758", NEWCOMER);
+  agree(gas, MEMBER, "action=something_old");
+  agree(gas, OUTSIDER, `action=agree_rules&ruleVersion=1&targetUserIds=${NEWCOMER}`);
+  const texts = gas.replies().map((r) => r.messages[r.messages.length - 1]);
+  assert.equal(texts.length, 5);
+  texts.forEach((m) => assert.ok(m.quickReply && m.quickReply.items.length > 0, m.text));
+});
