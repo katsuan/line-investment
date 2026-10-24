@@ -123,8 +123,12 @@ function processLineGroupBotLiffDataRequest_(request) {
 }
 
 function routeLineWebhookEvent_(event) {
+  if (event && event.source && event.source.type === 'user') {
+    handleDirectChatEvent_(event); // 1対1：管理者のテストの窓口（95_admin_test_window）だけ。ほかは返事も記録もしない
+    return;
+  }
   if (!event || !event.source || event.source.type !== 'group' || !event.source.groupId) {
-    return; // グループの外（1対1・複数人トーク）の知らせには、返事も記録もしない
+    return; // グループの外（複数人トーク）の知らせには、返事も記録もしない
   }
   switch (event.type) {
     case 'join':

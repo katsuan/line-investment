@@ -194,6 +194,9 @@ function handleMessage_(event) {
 
 // ことば → する関数（ないときは null）
 function findMessageCommandHandler_(text) {
+  if (isAdminTestCommand_(text)) {
+    return null; // テストの窓口は 1:1 のトークだけ。グループでは反応しない（銘柄コード TEST とも見ない）
+  }
   if (text === '#ルール') {
     return handleRuleCommand_;
   }

@@ -510,3 +510,59 @@ test("文の返事にも、次に押せる操作が付いている", () => {
   assert.equal(texts.length, 5);
   texts.forEach((m) => assert.ok(m.quickReply && m.quickReply.items.length > 0, m.text));
 });
+
+// ---- 管理者のテストの窓口（ux.md H11） ----
+
+const dm = (gas, userId, ev) => event(gas, { replyToken: "d-" + Math.random(), source: { type: "user", userId }, ...ev });
+const dmText = (gas, userId, t) => dm(gas, userId, { type: "message", message: { type: "text", text: t } });
+const dmTap = (gas, userId, data) => dm(gas, userId, { type: "postback", postback: { data } });
+const snapshot = (gas) => JSON.stringify(["GROUPS", "MEMBERS", "RULES", "EVENT_LOG", "WATCHLIST", "MARKET_DATA"].map((n) => gas.rows(n))) +
+  gas.eval("JSON.stringify(PropertiesService.getScriptProperties().getProperties())");
+
+test("テストの窓口：管理者が 1:1 で #テスト・#test と送ると 🧪 のカードが返る", () => {
+  const gas = make();
+  for (const t of ["#テスト", "#test", "＃ＴＥＳＴ"]) {
+    gas.reset();
+    dmText(gas, ADMIN, t);
+    const m = lastMessage(gas);
+    assert.equal(m.type, "flex", t);
+    assert.match(m.altText, /🧪/);
+    assert.ok(m.quickReply.items.length >= 4);
+  }
+});
+
+test("テストの窓口：ふつうの人の 1:1・グループでは反応しない（#test を銘柄とも見ない）", () => {
+  const gas = make();
+  dmText(gas, MEMBER, "#テスト");
+  dmTap(gas, MEMBER, "action=qtest&kind=samples&page=1");
+  text(gas, "#テスト", ADMIN);
+  text(gas, "#test", ADMIN);
+  text(gas, "#test", MEMBER);
+  assert.equal(gas.replies().length, 0);
+  assert.equal(gas.fetches.filter((f) => /google\.com\/finance/.test(f.url)).length, 0);
+});
+
+test("テストの窓口：どれを押しても reply で返り、本物には書かない・push しない", () => {
+  const gas = make();
+  const before = snapshot(gas);
+  dmText(gas, ADMIN, "#テスト");
+  const menuItems = lastMessage(gas).quickReply.items;
+  menuItems.forEach((it) => dmTap(gas, ADMIN, it.action.data));
+  dmTap(gas, ADMIN, "action=qtest&kind=sample_tap");
+  const replies = gas.replies();
+  assert.equal(replies.length, 1 + menuItems.length + 1, "押したら必ず返事");
+  assert.ok(replies.every((r) => r.kind === "reply"), "push を使わない");
+  assert.deepEqual(gas.reusedReplyTokens(), []);
+  replies.forEach((r) => {
+    assert.ok(r.messages.length <= 5);
+    r.messages.forEach((m) => assert.match(m.type === "text" ? m.text : m.altText, /🧪/, "見本には 🧪"));
+  });
+  assert.deepEqual(gas.flexProblems().filter((p) => p.level === "error"), []);
+  assert.equal(snapshot(gas), before, "シート・設定に書かない");
+  // 見本の中で押せるものは、画面を開くか、テストの窓口に返るものだけ
+  const samples = replies.flatMap((r) => r.messages).filter((m) => m.type === "flex" && /見本/.test(m.altText));
+  assert.ok(samples.length >= 10);
+  cardActions(samples).forEach((a) => assert.ok(a.type === "uri" || /^action=qtest/.test(a.data), JSON.stringify(a)));
+  // 断られたときの文
+  assert.ok(replies.some((r) => /文字だけで返しました/.test(JSON.stringify(r.messages))));
+});
