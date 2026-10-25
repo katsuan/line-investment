@@ -1,3 +1,9 @@
+/**
+ * LINE の Messaging API とのやりとり：返事を送る（カードが断られたら文字だけを push で送りなおす）・
+ * グループとメンバーのプロフィール・送り主の名前とアイコン。
+ * 10_bot・40_test_window などから呼ばれる。
+ */
+
 // 返事を送る。options.quickReply があれば、最後のメッセージに付ける（H3）。
 // カードが受けつけられなかったときは、黙らずに文字だけで送り、原因は LAST_LINE_ERRORS と EVENT_LOG に残す（H5）。
 // 返事の合図（reply token）は1回しか使えないので、文字だけの送りなおしは push で（ユーザーの操作1回につき1回まで。G10）
@@ -98,24 +104,7 @@ function rememberLineError_(kind, error, messages) {
   }
 }
 
-function getGroupSummary_(groupId) {
-  return callLineApi_('get', 'https://api.line.me/v2/bot/group/' + encodeURIComponent(groupId) + '/summary');
-}
-
-// 1回の呼び出しの中では、同じ人のプロフィールは1回だけ LINE に聞く（H9）
-const MEMBER_PROFILE_MEMO_ = {};
-
-function getGroupMemberProfile_(groupId, userId) {
-  const key = String(groupId) + '|' + String(userId);
-  if (!Object.prototype.hasOwnProperty.call(MEMBER_PROFILE_MEMO_, key)) {
-    MEMBER_PROFILE_MEMO_[key] = callLineApi_(
-      'get',
-      'https://api.line.me/v2/bot/group/' + encodeURIComponent(groupId) + '/member/' + encodeURIComponent(userId)
-    );
-  }
-  return MEMBER_PROFILE_MEMO_[key];
-}
-
+// LINE の API を呼ぶ。うまくいけば中身を返し、だめなら番号と中身の入ったエラーで止める
 function callLineApi_(method, url, payload) {
   const options = {
     method: method,
@@ -142,6 +131,57 @@ function callLineApi_(method, url, payload) {
   throw new Error('LINE API error ' + statusCode + ': ' + text);
 }
 
+// グループの名前とアイコンを LINE に聞く
+function getGroupSummary_(groupId) {
+  return callLineApi_('get', 'https://api.line.me/v2/bot/group/' + encodeURIComponent(groupId) + '/summary');
+}
+
+// グループの名前とアイコン（1日1回だけ LINE に聞き、Script Properties に覚える）
+function getCachedGroupSummary_(groupId) {
+  const normalizedGroupId = String(groupId || '').trim();
+  if (!normalizedGroupId) {
+    return null;
+  }
+
+  const cacheKey = GROUP_SUMMARY_CACHE_KEY_PREFIX_ + normalizedGroupId;
+  const cacheDate = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+  const cached = getScriptProperty_(cacheKey);
+
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.cacheDate === cacheDate) {
+        return parsed.summary || null;
+      }
+    } catch (error) {
+      // Ignore broken cache and refresh from LINE API.
+    }
+  }
+
+  const summary = getGroupSummary_(normalizedGroupId);
+  setScriptProperty_(cacheKey, JSON.stringify({
+    cacheDate: cacheDate,
+    summary: summary || {},
+  }));
+  return summary || null;
+}
+
+// 1回の呼び出しの中では、同じ人のプロフィールは1回だけ LINE に聞く（H9）
+const MEMBER_PROFILE_MEMO_ = {};
+
+// グループのメンバーの名前と写真を LINE に聞く（1回の呼び出しの中では同じ人に1回だけ）。いないときは止まる
+function getGroupMemberProfile_(groupId, userId) {
+  const key = String(groupId) + '|' + String(userId);
+  if (!Object.prototype.hasOwnProperty.call(MEMBER_PROFILE_MEMO_, key)) {
+    MEMBER_PROFILE_MEMO_[key] = callLineApi_(
+      'get',
+      'https://api.line.me/v2/bot/group/' + encodeURIComponent(groupId) + '/member/' + encodeURIComponent(userId)
+    );
+  }
+  return MEMBER_PROFILE_MEMO_[key];
+}
+
+// 返事の送り主（グループの名前とアイコン。聞けないときは決まりの名前）
 function buildLineSenderByGroup_(groupId) {
   const sender = {
     name: normalizeLineSenderName_(getLineSenderName_()),
@@ -170,14 +210,17 @@ function normalizeLineSenderName_(value) {
   return text;
 }
 
+// 送り主の名前に使えるか（「LINE」が入っていると断られる）
 function isUsableLineSenderName_(name) {
   return !/line/i.test(String(name || ''));
 }
 
+// 送り主の名前を20字までにする
 function normalizeLineSenderNameByLength_(value) {
   return String(value || '').trim().slice(0, 20);
 }
 
+// メッセージに送り主を付けた写しを返す
 function attachSenderToLineMessage_(message, sender) {
   if (!message || !sender || !sender.name) {
     return message;
@@ -185,33 +228,4 @@ function attachSenderToLineMessage_(message, sender) {
   return Object.assign({}, message, {
     sender: sender,
   });
-}
-
-function getCachedGroupSummary_(groupId) {
-  const normalizedGroupId = String(groupId || '').trim();
-  if (!normalizedGroupId) {
-    return null;
-  }
-
-  const cacheKey = GROUP_SUMMARY_CACHE_KEY_PREFIX_ + normalizedGroupId;
-  const cacheDate = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
-  const cached = getScriptProperty_(cacheKey);
-
-  if (cached) {
-    try {
-      const parsed = JSON.parse(cached);
-      if (parsed && parsed.cacheDate === cacheDate) {
-        return parsed.summary || null;
-      }
-    } catch (error) {
-      // Ignore broken cache and refresh from LINE API.
-    }
-  }
-
-  const summary = getGroupSummary_(normalizedGroupId);
-  setScriptProperty_(cacheKey, JSON.stringify({
-    cacheDate: cacheDate,
-    summary: summary || {},
-  }));
-  return summary || null;
 }

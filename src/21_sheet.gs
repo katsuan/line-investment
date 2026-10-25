@@ -1,7 +1,15 @@
+/**
+ * スプレッドシートの読み書き：GROUPS・MEMBERS・RULES・WATCHLIST・MARKET_DATA・EVENT_LOG。
+ * 1回の呼び出しの中で同じシートは1回だけ読み（H9）、書くときはロックの中で読みなおす。外から来た文字は式にしない（G1）。
+ * 10_bot・11_watch_stats・12_liff_api・22_market_data から呼ばれる。
+ */
+
 // 1回の呼び出しの中では、同じシートは1回だけ読む（H9）。書くとき（ロックの中）は、読みなおしてから書く
 let SPREADSHEET_MEMO_ = null;
+
 let TABLE_DATA_MEMO_ = {};
 
+// 記録のスプレッドシートを開く（1回の呼び出しの中では1回だけ）
 function openSpreadsheet_() {
   if (!SPREADSHEET_MEMO_) {
     SPREADSHEET_MEMO_ = SpreadsheetApp.openById(getSpreadsheetId_());
@@ -9,6 +17,7 @@ function openSpreadsheet_() {
   return SPREADSHEET_MEMO_;
 }
 
+// 名前でシートを取る。ないと止まる
 function getSheetOrThrow_(name) {
   const sheet = openSpreadsheet_().getSheetByName(name);
   if (!sheet) {
@@ -17,10 +26,12 @@ function getSheetOrThrow_(name) {
   return sheet;
 }
 
+// 覚えたシートの中身を捨てる（次に読むときは読みなおす）
 function clearTableDataMemo_() {
   TABLE_DATA_MEMO_ = {};
 }
 
+// シートを読んで、見出しを名前にした行の一覧にする（1回の呼び出しの中では同じシートを1回だけ読む）
 function getTableData_(sheetName) {
   if (TABLE_DATA_MEMO_[sheetName]) {
     return TABLE_DATA_MEMO_[sheetName];
@@ -42,6 +53,7 @@ function getTableData_(sheetName) {
   return table;
 }
 
+// シートの1行を { 見出し: 値 } にする。日時は日本時間の文字にそろえる
 function toRecord_(headers, row) {
   const record = {};
   headers.forEach(function(header, index) {
@@ -57,7 +69,7 @@ function recordToRow_(headers, record) {
   });
 }
 
-// 「-1.23%」「+5」のような数の文字はそのまま（式にはならない）。ほかは safeCell（99_selfcheck.gs）
+// 「-1.23%」「+5」のような数の文字はそのまま（式にはならない）。ほかは safeCell（selfcheck.gs）
 function toSafeSheetValue_(value) {
   if (typeof value === 'string' && /^[+-]?[\d.,]+%?$/.test(value)) {
     return value;
@@ -65,6 +77,7 @@ function toSafeSheetValue_(value) {
   return safeCell(value);
 }
 
+// 決めた列の値がすべて合う、最初の行の番号（ないときは -1）
 function findRowIndexByKeys_(rows, keyNames, keyValues) {
   for (let index = 0; index < rows.length; index += 1) {
     const matched = keyNames.every(function(keyName) {
@@ -77,6 +90,7 @@ function findRowIndexByKeys_(rows, keyNames, keyValues) {
   return -1;
 }
 
+// GROUPS にグループを書く（あれば直し、なければ足す）。ロックの中で
 function upsertGroupRecord_(groupRecord) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.GROUPS);
@@ -107,12 +121,14 @@ function upsertGroupRecord_(groupRecord) {
   });
 }
 
+// GROUPS のグループの行（ないときは null）
 function getGroupRecord_(groupId) {
   const table = getTableData_(SHEET_NAMES_.GROUPS);
   const rowIndex = findRowIndexByKeys_(table.rows, ['groupId'], { groupId: groupId });
   return rowIndex >= 0 ? table.rows[rowIndex] : null;
 }
 
+// MEMBERS にメンバーを書く（あれば直し、なければ足す）。ロックの中で
 function upsertMemberRecord_(memberRecord) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.MEMBERS);
@@ -145,12 +161,14 @@ function upsertMemberRecord_(memberRecord) {
   });
 }
 
+// グループのいまのメンバーの行
 function getActiveMembersByGroup_(groupId) {
   return getTableData_(SHEET_NAMES_.MEMBERS).rows.filter(function(row) {
     return String(row.groupId) === String(groupId) && String(row.active) !== 'false';
   });
 }
 
+// RULES のその版のルール（ないときは null）
 function getRuleByVersion_(version) {
   const rows = getTableData_(SHEET_NAMES_.RULES).rows;
   const matched = rows.find(function(row) {
@@ -159,6 +177,7 @@ function getRuleByVersion_(version) {
   return matched || null;
 }
 
+// RULES で使うことにしているルール（なければ Version 1）
 function getEnabledRule_() {
   const rows = getTableData_(SHEET_NAMES_.RULES).rows;
   const enabled = rows.find(function(row) {
@@ -167,6 +186,7 @@ function getEnabledRule_() {
   return enabled || getRuleByVersion_(DEFAULT_RULE_VERSION_);
 }
 
+// グループのいまのルール
 function getCurrentRuleForGroup_(groupId) {
   const group = getGroupRecord_(groupId);
   const version = group && group.ruleVersion ? group.ruleVersion : DEFAULT_RULE_VERSION_;
@@ -174,6 +194,7 @@ function getCurrentRuleForGroup_(groupId) {
   return getRuleByVersion_(version) || getEnabledRule_() || buildDefaultRuleRecord_();
 }
 
+// いまの版のルールを、まだ確認していないメンバー
 function getUnconfirmedMembers_(groupId, ruleVersion) {
   return getActiveMembersByGroup_(groupId).filter(function(member) {
     return Number(member.agreedRuleVersion) !== Number(ruleVersion);
@@ -207,6 +228,7 @@ function createWatchlistRecordIfAbsent_(watchlistRecord) {
   });
 }
 
+// グループのいま注目中の行（新しい順）
 function getActiveWatchlistByGroup_(groupId) {
   return getTableData_(SHEET_NAMES_.WATCHLIST).rows
     .filter(function(row) {
@@ -232,6 +254,7 @@ function getActiveWatchlistRecordByTicker_(groupId, ticker) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+// 注目中の行の、注目したときの株価などの空欄だけを埋める（00_run の refreshActiveWatchlistMarketCaps から）
 function backfillActiveWatchlistSnapshot_(groupId, ticker, snapshotRecord) {
   return withScriptLock_(function() {
     const normalizedTicker = normalizeTickerCode_(ticker);
@@ -280,6 +303,7 @@ function backfillActiveWatchlistSnapshot_(groupId, ticker, snapshotRecord) {
   });
 }
 
+// その銘柄の注目を外す（外した人と時刻を残す）。外した行を返す（なければ null）
 function deactivateWatchlistRecord_(groupId, ticker, deactivatedByUserId, deactivatedByDisplayName) {
   return withScriptLock_(function() {
     const normalizedTicker = normalizeTickerCode_(ticker);
@@ -320,6 +344,7 @@ function deactivateWatchlistRecord_(groupId, ticker, deactivatedByUserId, deacti
   });
 }
 
+// グループの注目を全部外す。外した行の一覧を返す
 function deactivateAllActiveWatchlistRecords_(groupId, deactivatedByUserId, deactivatedByDisplayName) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.WATCHLIST);
@@ -347,6 +372,7 @@ function deactivateAllActiveWatchlistRecords_(groupId, deactivatedByUserId, deac
   });
 }
 
+// MARKET_DATA に取った株価を書く（銘柄ごとに1行。あれば直す）
 function upsertMarketDataRecord_(marketDataRecord) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.MARKET_DATA);
@@ -392,6 +418,7 @@ function upsertMarketDataRecord_(marketDataRecord) {
   });
 }
 
+// MARKET_DATA のその銘柄の行（ないときは null）
 function getMarketDataRecordByTicker_(ticker) {
   const normalizedTicker = normalizeTickerCode_(ticker);
   if (!normalizedTicker) {
@@ -409,6 +436,7 @@ function getMarketDataRecordByTicker_(ticker) {
   return rows.length > 0 ? rows[0] : null;
 }
 
+// MARKET_DATA から、銘柄ごとのいちばん新しい行を { 銘柄: 行 } で
 function getLatestMarketDataRecordMapByTickers_(tickers) {
   const normalizedTickers = Array.from(new Set((tickers || []).map(function(ticker) {
     return normalizeTickerCode_(ticker);
@@ -442,6 +470,7 @@ function getLatestMarketDataRecordMapByTickers_(tickers) {
 // 記録は見出しの行だけ読んで1行足す（記録のシートは長くなるので、全部は読まない）
 let EVENT_LOG_HEADERS_MEMO_ = null;
 
+// EVENT_LOG に1行足す（ユーザー ID はハッシュにし、長い中身は切る）
 function appendEventLog_(eventLog) {
   const sheet = getSheetOrThrow_(SHEET_NAMES_.EVENT_LOG);
   if (!EVENT_LOG_HEADERS_MEMO_) {
@@ -467,6 +496,7 @@ function appendEventLog_(eventLog) {
   return record;
 }
 
+// LINE の知らせ1つの結果を EVENT_LOG に残す
 function logEventResult_(event, action, result, detail, errorMessage) {
   const source = event && event.source ? event.source : {};
   appendEventLog_({

@@ -45,7 +45,7 @@ function lineFetch(url, opt) {
 // setupInvestmentGroupBot と同じシートを作る（偽物の GAS は、シートを隠す操作を持っていないので、隠すところだけ飛ばす）
 function setupSheets(gas) {
   const book = gas.eval("SpreadsheetApp.openById('SPREADSHEET_TEST')");
-  const src = require("node:fs").readFileSync(path.join(__dirname, "../src/90_setup_investment_group_bot.gs"), "utf8");
+  const src = require("node:fs").readFileSync(path.join(__dirname, "../src/00_run.gs"), "utf8");
   const calls = [...src.matchAll(/ensureSheetWithHeaders_\(spreadsheet, ([^,]+), \[([\s\S]*?)\]\);/g)];
   calls.forEach((m) => {
     const name = m[1].startsWith("'") ? m[1].slice(1, -1) : gas.eval(m[1]);
@@ -582,4 +582,38 @@ test("カードの「確認しました」を何日もあとに押しても、�
   gas.reset();
   agree(gas, MEMBER, data); // ほかの人が押した
   assert.match(replyTexts(gas), /案内した人のため/);
+});
+
+// ---- ファイルの並べ方とコメント（q-oqrn docs/structure.md） ----
+
+const fs = require("node:fs");
+const SRC = path.join(__dirname, "../src");
+const gsFiles = () => fs.readdirSync(SRC).filter((f) => f.endsWith(".gs"));
+
+test("selfcheck.gs は q-oqrn の写しと同じ", () => {
+  const ours = fs.readFileSync(path.join(SRC, "selfcheck.gs"), "utf8");
+  const original = fs.readFileSync(path.join(__dirname, "../../q-oqrn/tools/qtest/selfcheck.gs"), "utf8");
+  assert.equal(ours, original);
+});
+
+test("「実行」の一覧に出る関数（名前が _ で終わらない）は、人が実行するものと入口だけ", () => {
+  const found = {};
+  gsFiles().forEach((f) => {
+    for (const m of fs.readFileSync(path.join(SRC, f), "utf8").matchAll(/^function ([A-Za-z0-9]+[A-Za-z0-9]*[^_\s(])\(/gm)) found[m[1]] = f;
+  });
+  assert.deepEqual(found, {
+    checkAll: "00_run.gs", setupInvestmentGroupBot: "00_run.gs", refreshActiveWatchlistMarketCaps: "00_run.gs", updateDefaultRuleVersionOne: "00_run.gs",
+    doPost: "01_entry.gs", doGet: "01_entry.gs", runLineGroupBotPost: "01_entry.gs", runLineGroupBotGet: "01_entry.gs",
+    qCheckAll: "selfcheck.gs", qHeartbeat: "selfcheck.gs", safeCell: "selfcheck.gs",
+  });
+});
+
+test("ファイルの先頭と、関数の前に、コメントがある", () => {
+  gsFiles().filter((f) => f !== "selfcheck.gs").forEach((f) => {
+    const lines = fs.readFileSync(path.join(SRC, f), "utf8").split("\n");
+    assert.match(lines[0], /^(\/\*\*|\/\/)/, f + " の先頭");
+    lines.forEach((line, i) => {
+      if (/^function /.test(line)) assert.match(lines[i - 1].trim(), /^\/\/|\*\/$/, f + "：" + line);
+    });
+  });
 });

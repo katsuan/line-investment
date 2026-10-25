@@ -1,13 +1,23 @@
-// だれが呼んでいるかを確かめる（docs/security.md の G3・G4）
+/**
+ * だれが呼んでいるかを確かめる（q-oqrn docs/security.md の G3・G4）。
+ *   Webhook の合言葉・画面の本人の印（ID トークン・アクセストークン）を LINE に確かめる・グループにいるか・
+ *   groupId と銘柄コードの形・記録に残すユーザー ID のハッシュ
+ * 02_router・10_bot・12_liff_api・21_sheet から呼ばれる。
+ */
 
 // LIFF の画面のチャネル ID（LIFF ID の「-」より前）。LIFF ID は画面にも置いてある、公開してよい値
 const DEFAULT_LIFF_CHANNEL_ID_ = '2011004889';
+
 const LINE_GROUP_ID_PATTERN_ = /^C[0-9a-f]{32}$/;
+
 // 銘柄コード（「7203」「AAPL」。画面の検索では「AAPL:NASDAQ」のように市場を付けてもよい）
 const TICKER_CODE_PATTERN_ = /^[A-Z0-9.-]{1,10}(:[A-Z]{2,10})?$/;
+
 const LIFF_AUTH_CACHE_SECONDS_ = 600;
+
 const GROUP_MEMBER_CACHE_SECONDS_ = 600;
 
+// 画面（LIFF）のチャネル ID。Script Properties の LIFF_CHANNEL_ID、なければ決まりの値
 function getLiffChannelId_() {
   return String(getScriptProperty_('LIFF_CHANNEL_ID') || DEFAULT_LIFF_CHANNEL_ID_).trim();
 }
@@ -22,6 +32,7 @@ function isWebhookKeyAccepted_(request) {
   return constantTimeEquals_(given, expected);
 }
 
+// 2つの文字が同じか（かかる時間が中身で変わらない比べ方。合言葉に使う）
 function constantTimeEquals_(a, b) {
   const x = String(a);
   const y = String(b);
@@ -65,6 +76,7 @@ function rememberVerifiedToken_(token, verify) {
   return result.userId;
 }
 
+// ID トークンを LINE に確かめ、本人の userId と残りの秒数を返す。だめなら null
 function verifyLiffIdToken_(idToken) {
   const response = UrlFetchApp.fetch('https://api.line.me/oauth2/v2.1/verify', {
     method: 'post',
@@ -81,6 +93,7 @@ function verifyLiffIdToken_(idToken) {
   return { userId: String(body.sub), expiresIn: Number(body.exp || 0) - Date.now() / 1000 };
 }
 
+// アクセストークンを LINE に確かめ（このチャネルのもので期限内か）、プロフィールから本人の userId を返す。だめなら null
 function verifyLiffAccessToken_(accessToken) {
   const verifyResponse = UrlFetchApp.fetch(
     'https://api.line.me/oauth2/v2.1/verify?access_token=' + encodeURIComponent(accessToken),
@@ -127,22 +140,17 @@ function isLineGroupMember_(groupId, userId) {
   return true;
 }
 
+// LINE のグループ ID の形か（C＋32桁）
 function isValidLineGroupId_(groupId) {
   return LINE_GROUP_ID_PATTERN_.test(String(groupId || ''));
 }
 
+// 銘柄コードの形か（大文字にしたあとの「7203」「AAPL」「AAPL:NASDAQ」）
 function isValidTickerCode_(ticker) {
   return TICKER_CODE_PATTERN_.test(String(ticker || ''));
 }
 
-function parseJsonSafely_(text) {
-  try {
-    return JSON.parse(text);
-  } catch (error) {
-    return null;
-  }
-}
-
+// 文字の SHA-256 を16進の文字で返す
 function sha256Hex_(text) {
   return Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text), Utilities.Charset.UTF_8)
     .map(function(byte) {
@@ -158,6 +166,7 @@ function maskLineUserId_(userId) {
   return text ? 'u:' + sha256Hex_(text).slice(0, 12) : '';
 }
 
+// 文の中の LINE のユーザー ID を、すべてハッシュ（u:○○）に置きかえる
 function maskLineUserIdsInText_(text) {
   return String(text || '').replace(/U[0-9a-f]{32}/g, function(matched) {
     return maskLineUserId_(matched);

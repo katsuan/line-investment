@@ -1,3 +1,6 @@
+/* 投資情報共有の画面（LIFF）の入口：注目一覧・実績・銘柄をしらべる・#コード をグループに送る。
+ * 読むもの：config.js（LIFF ID と問い合わせ先）・Q キット（ui.js）・LINE の LIFF SDK。index.html から読まれる。
+ * 中身は GAS（src/12_liff_api.gs）に問い合わせる。本人は LINE の ID トークンで GAS が確かめる */
 (function() {
   const query = new URLSearchParams(window.location.search);
   const config = window.APP_CONFIG || {};
@@ -53,6 +56,7 @@
     watchlistFilters: emptyWatchlistFilters()
   };
 
+  // 注目一覧のしぼりこみの、空の形
   function emptyWatchlistFilters() {
     return {
       name: '',
@@ -108,10 +112,12 @@
 
   // ---- Q キット（読みこめなかったときも止まらないように） ----
 
+  // Q キット（LineShareUI）。読みこめていなければ null
   function kit() {
     return window.LineShareUI || null;
   }
 
+  // 下に短い知らせを出す（Q キットがなければ、しらべるの欄に文字で）
   function toast(message, options) {
     const ui = kit();
     if (ui && ui.toast) {
@@ -121,6 +127,7 @@
     searchStatus.textContent = message;
   }
 
+  // 確かめの小窓を出す（Q キットがなければ、すぐ答えを返す）
   function ask(options) {
     const ui = kit();
     if (ui && ui.ask) {
@@ -129,12 +136,14 @@
     return Promise.resolve(options && options.cancel === null);
   }
 
+  // 目印の文字を変える
   function setBadge(el, text) {
     if (el) {
       el.textContent = text;
     }
   }
 
+  // 手元で確かめるときだけ、group・user の目印を出す
   function updateDebugBadges(label) {
     if (!state.isDebug) {
       return;
@@ -147,6 +156,7 @@
     setBadge(userBadge, 'user: ' + (state.userId || '-'));
   }
 
+  // 騰落率の色の名前（+ は plus、- は minus。数がない「-」は色なし）
   function getDeltaClass(value) {
     if (typeof value !== 'string') {
       return '';
@@ -170,6 +180,7 @@
     return /^[+-]?\d+(\.\d+)?$/.test(text) ? text + '%' : text;
   }
 
+  // HTML に入れる文字を、タグとして読まれないようにする
   function escapeHtml(text) {
     return String(text || '')
       .replace(/&/g, '&amp;')
@@ -179,6 +190,7 @@
       .replace(/'/g, '&#39;');
   }
 
+  // 「1,234」「48.5兆」「+1.2%」のような文字を数にする（比べる・しぼるため）。読めなければ null
   function parseMaybeNumber(value) {
     if (value === null || typeof value === 'undefined') {
       return null;
@@ -215,6 +227,7 @@
     return parsed * multiplier;
   }
 
+  // 「26/10/01」「2026-10-01」などの日付を、比べられる数にする。読めなければ null
   function parseDateValue(value) {
     const raw = String(value || '').trim();
     if (!raw) {
@@ -235,6 +248,7 @@
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  // 日時を「10/1 15:00」の形で出す（日本時間の文字はそのまま月日と時刻に）
   function formatDateTimeDisplay(value) {
     // 「2026-10-22 15:00:00」（日本時間）は、そのまま月日と時刻にする（日付だけで読むと時刻がずれる）
     const withTime = String(value || '').trim().match(/^(\d{4})[-/](\d{2})[-/](\d{2})[ T](\d{2}):(\d{2})/);
@@ -255,6 +269,7 @@
     }).replace(/-/g, '/');
   }
 
+  // 「7203:TYO」から市場を除いたコード
   function getTickerCode(value) {
     const raw = String(value || '').trim();
     if (!raw) {
@@ -263,6 +278,7 @@
     return raw.split(':')[0] || raw;
   }
 
+  // 入れた銘柄コードを、大文字にして「#」を取る
   function normalizeTickerText(value) {
     return String(value || '').trim().toUpperCase().replace(/^#/, '');
   }
@@ -280,6 +296,7 @@
     { key: 'addedAt', label: '注目日', type: 'date' }
   ];
 
+  // 注目一覧の、列ごとの比べる値（銘柄は国旗付き・コードは市場なし）
   function getWatchlistCellValue(item, key) {
     if (key === 'name') {
       return (item.marketFlag ? item.marketFlag + ' ' : '') + (item.name || '-');
@@ -290,6 +307,7 @@
     return item[key];
   }
 
+  // 注目一覧の2行を、列の種類（数・日付・文字）で比べる。値がないものは後ろへ
   function compareWatchlistItems(a, b, column) {
     const aValue = getWatchlistCellValue(a, column.key);
     const bValue = getWatchlistCellValue(b, column.key);
@@ -327,6 +345,7 @@
     return String(aValue || '').localeCompare(String(bValue || ''), 'ja');
   }
 
+  // 注目一覧を、しぼりこみの条件で残す
   function getWatchlistFilteredItems(items) {
     return items.filter(function(item) {
       const filters = state.watchlistFilters;
@@ -383,6 +402,7 @@
     });
   }
 
+  // 注目一覧を、えらんだ列と向きで並べる
   function getWatchlistSortedItems(items) {
     const column = watchlistColumns.find(function(entry) {
       return entry.key === state.watchlistSort.key;
@@ -397,6 +417,7 @@
     });
   }
 
+  // 注目した人の名前の一覧（しぼりこみの選択肢）
   function getWatchlistAddedByOptions(items) {
     const names = items.map(function(item) {
       return String(item.addedByDisplayName || '').trim();
@@ -406,6 +427,7 @@
     });
   }
 
+  // 列ごとのしぼりこみの入力欄（数は以上・以下、注目者は選ぶ、ほかは文字）の HTML
   function renderWatchlistFilterInput(column, items) {
     const filters = state.watchlistFilters;
     const label = column.label;
@@ -434,6 +456,7 @@
     return '<input class="table-filter-input" data-filter-key="' + column.key + '" type="text" enterkeyhint="done" placeholder="しぼる" aria-label="' + escapeHtml(label) + 'でしぼる" value="' + escapeHtml(filters[column.key] || '') + '">';
   }
 
+  // しぼりこみが1つでも入っているか
   function hasWatchlistFilters() {
     const filters = state.watchlistFilters;
     return Object.keys(filters).some(function(key) {
@@ -442,6 +465,7 @@
     });
   }
 
+  // 注目一覧の表の HTML（件数・株価の時刻・見出し・しぼりこみ・行）
   function renderWatchlistTable(items) {
     const filteredItems = getWatchlistFilteredItems(items);
     const sortedItems = getWatchlistSortedItems(filteredItems);
@@ -507,6 +531,7 @@
     ].join('');
   }
 
+  // 人の写真の丸（写真がなければ名前の1文字目）の HTML
   function renderAvatar(pictureUrl, displayName) {
     if (pictureUrl) {
       return '<div class="avatar"><img src="' + escapeHtml(pictureUrl) + '" alt=""></div>';
@@ -516,6 +541,7 @@
 
   // ---- タブ ----
 
+  // タブを切りかえる。注目一覧・実績は、まだなら読みこむ
   function setActiveView(view, options) {
     const isSameView = state.activeView === view;
     state.activeView = view;
@@ -537,10 +563,12 @@
 
   // ---- しらべる・送る ----
 
+  // しらべるの欄の銘柄コード
   function normalizeTickerInput() {
     return normalizeTickerText(tickerInput.value || '');
   }
 
+  // 注目一覧から、その銘柄の行を探す（ないときは null）
   function findWatchItemByTicker(ticker) {
     const items = (state.watchlistPayload && state.watchlistPayload.items) || [];
     return items.find(function(item) {
@@ -548,6 +576,7 @@
     }) || null;
   }
 
+  // しらべるの欄が変わったとき：注目中かどうか・送ると何が起きるか・注目中のボタンを出しなおす
   function updateSearchWatchState() {
     const ticker = normalizeTickerInput();
     if (ticker) {
@@ -607,6 +636,7 @@
     }).join('');
   }
 
+  // しらべるの欄の銘柄コード。空なら欄の下に赤い文字を出して空を返す
   function requireTicker() {
     const ticker = normalizeTickerInput();
     if (!ticker) {
@@ -618,6 +648,7 @@
     return ticker;
   }
 
+  // 文字をコピーする。できたら true
   async function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try {
@@ -630,6 +661,7 @@
     return false;
   }
 
+  // 「#コード」をグループに送る（LINE の中で送れないときはコピー）
   async function sendTickerCommand() {
     const ticker = requireTicker();
     if (!ticker) {
@@ -673,6 +705,7 @@
 
   // ---- LINE とのつなぎ ----
 
+  // LINE アプリで開きなおす URL（グループと今のタブを付ける）
   function buildOpenInLineUrl() {
     if (!state.liffId) {
       return '';
@@ -715,6 +748,7 @@
     }
   }
 
+  // 手元で確かめるときだけ、config.local.js の人として動かす。使ったら true
   function useLocalDebugUser(label) {
     if (!isLocalHost || !config.debugUserId) {
       return false;
@@ -725,6 +759,7 @@
     return true;
   }
 
+  // LINE とつなぐ：ログインと、その場で送れるかを決める。LINE の外では、できることを出す
   async function initializeLiff() {
     if (!window.liff || !state.liffId) {
       if (!useLocalDebugUser('LINE なし')) {
@@ -770,16 +805,19 @@
 
   // ---- 読みこみ ----
 
+  // 読みこみのようすの文字を出す
   function setLoadingText(el, message) {
     if (el) {
       el.textContent = message || '';
     }
   }
 
+  // 注目一覧か実績の、いま持っている中身
   function getViewPayload(view) {
     return view === 'watchlist' ? state.watchlistPayload : state.performancePayload;
   }
 
+  // 注目一覧か実績の中身を置きかえる
   function setViewPayload(view, payload) {
     if (view === 'watchlist') {
       state.watchlistPayload = payload;
@@ -793,6 +831,7 @@
     return 'line-investment:v1:' + state.groupId + ':' + view;
   }
 
+  // この端末に残した、前に開いたときの中身を読む（ないときは null）
   function readCachedView(view) {
     if (!state.groupId) {
       return null;
@@ -806,6 +845,7 @@
     }
   }
 
+  // 中身をこの端末に残す（次に開いたとき、すぐ出すため）
   function writeCachedView(view, payload) {
     if (!state.groupId) {
       return;
@@ -817,6 +857,7 @@
     }
   }
 
+  // 開いたとき、端末に残した注目一覧・実績を先に読む
   function restoreCachedViews() {
     ['watchlist', 'performance'].forEach(function(view) {
       const cached = readCachedView(view);
@@ -827,6 +868,7 @@
     });
   }
 
+  // 中身から、注目一覧か実績を描く
   function renderViewFromPayload(view, payload) {
     if (view === 'watchlist') {
       renderWatchlist(payload);
@@ -836,20 +878,24 @@
     renderPerformance(payload);
   }
 
+  // 読みこみ中の箱を出す
   function renderSkeleton(contentEl) {
     contentEl.innerHTML = '<div class="skeleton-list" aria-hidden="true">' +
       '<span class="ls-skeleton"></span><span class="ls-skeleton"></span><span class="ls-skeleton"></span><span class="ls-skeleton"></span>' +
       '</div>';
   }
 
+  // 中身がないときの絵と文を出す
   function renderEmptyNote(contentEl, icon, text) {
     contentEl.innerHTML = '<div class="ls-empty"><span class="ls-empty-icon" aria-hidden="true">' + escapeHtml(icon) + '</span>' + escapeHtml(text) + '</div>';
   }
 
+  // 問い合わせできるか（問い合わせ先・グループ・本人の印がそろっている）
   function canFetch() {
     return !!(state.apiBaseUrl && state.groupId && (getLineProof() || state.userId));
   }
 
+  // 読みこみの失敗の種類（kind）を持つエラーを作る
   function makeLoadError(kind) {
     const error = new Error(kind);
     error.kind = kind;
@@ -870,6 +916,7 @@
     return '読みこめませんでした。電波のよいところで「↻ 新しくする」を押してね。';
   }
 
+  // GAS に問い合わせて中身を返す。失敗は種類（ネット・見られない・ログインしなおし）のエラーで止まる
   async function fetchJsonWithParams(view, extraParams) {
     if (!canFetch()) {
       throw makeLoadError('nocontext');
@@ -922,6 +969,7 @@
     }, { slowAfter: 8, slowNote: '株価を取りに行っています。少し時間がかかることがあります。' });
   }
 
+  // 銘柄ひとつのカード（株価・前日比・注目中か）を描く
   function renderQuotePreview(payload, targetEl) {
     const container = targetEl || quotePreview;
     if (!payload) {
@@ -961,6 +1009,7 @@
 
   let quoteSheetReturnFocus = null;
 
+  // 銘柄のシートを開く（閉じたら元の場所にもどる）
   function openQuoteModal(title) {
     quoteSheetReturnFocus = document.activeElement;
     quoteModalTitle.textContent = title || '銘柄の情報';
@@ -968,6 +1017,7 @@
     quoteModalClose.focus();
   }
 
+  // 銘柄のシートを閉じる
   function closeQuoteModal() {
     if (quoteModal.hidden) {
       return;
@@ -978,6 +1028,7 @@
     }
   }
 
+  // 銘柄ひとつの株価を取って描く。取れなければ、やさしい文を出して null
   async function fetchQuoteByTicker(ticker, options) {
     const normalizedTicker = normalizeTickerText(ticker);
     const settings = options || {};
@@ -1019,6 +1070,7 @@
     }
   }
 
+  // 「🔍 株価を見る」：しらべるの欄の銘柄の株価を出す
   async function fetchQuotePreview() {
     const ticker = requireTicker();
     if (!ticker) {
@@ -1037,6 +1089,7 @@
 
   // ---- 注目一覧・実績 ----
 
+  // 注目一覧を描く（横のスクロールの位置は残す）
   function renderWatchlist(payload) {
     const items = (payload && payload.items) || [];
     const existingWrap = watchlistContent.querySelector('.watchlist-table-wrap');
@@ -1052,12 +1105,14 @@
     }
   }
 
+  // 平均の騰落率を「+1.23%」の文字に（ないときは「-」）
   function formatAverage(value) {
     return value === null || typeof value === 'undefined'
       ? '-'
       : ((value > 0 ? '+' : '') + Number(value).toFixed(2) + '%');
   }
 
+  // 実績の順位の行の HTML
   function renderRankingRows(ranking) {
     return ranking.map(function(row) {
       const average = formatAverage(row.averageDelta);
@@ -1075,6 +1130,7 @@
     }).join('');
   }
 
+  // 紹介する人のカードの HTML（名前・平均・銘柄）
   function renderSpotlightCard(spotlight) {
     if (!spotlight) {
       return '';
@@ -1113,6 +1169,7 @@
     ].join('');
   }
 
+  // 実績（順位と紹介）を描く
   function renderPerformance(payload) {
     const ranking = (payload && payload.ranking) || [];
     if (ranking.length === 0) {
@@ -1129,6 +1186,7 @@
     ].join('');
   }
 
+  // 端末に残した時刻を「10/1 15:00」の形に
   function formatSavedTime(ms) {
     if (!ms) {
       return '';
@@ -1136,6 +1194,7 @@
     return new Date(ms).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
+  // 注目一覧か実績を読みこむ：残した中身を先に出し、ネットの返事をあとから重ねる。重なったときは新しい読みこみだけを使う
   async function loadView(view, options) {
     const forceRefresh = !!(options && options.forceRefresh);
     const loadingEl = view === 'watchlist' ? watchlistLoading : performanceLoading;
@@ -1268,6 +1327,7 @@
     }
   });
 
+  // 注目一覧の行を押したとき、その銘柄のシートを開く
   function openQuoteForRow(tickerRow) {
     openQuoteModal(tickerRow.dataset.name || '銘柄の情報');
     fetchQuoteByTicker(tickerRow.dataset.ticker, {
@@ -1361,6 +1421,7 @@
     const startX = event.clientX;
     const startWidth = Number(state.watchlistColumnWidths[key] || 120);
 
+    // 列の幅を、つまんで動かした分だけ変える
     function onMove(moveEvent) {
       state.watchlistColumnWidths[key] = Math.max(72, startWidth + (moveEvent.clientX - startX));
       if (state.watchlistPayload) {
@@ -1368,6 +1429,7 @@
       }
     }
 
+    // 列の幅の変更を終える
     function onUp() {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);

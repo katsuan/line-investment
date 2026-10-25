@@ -1,4 +1,9 @@
-// 使う前の確かめ（99_selfcheck.gs の qCheckAll）で見ること。GAS エディタで qCheckAll を実行する
+/**
+ * 自己点検（selfcheck.gs の qCheckAll）で何を確かめるか。
+ * 00_run の checkAll と、40_test_window の 🩺 自己点検から使われる。
+ */
+
+// 使う前の確かめ（selfcheck.gs の qCheckAll）で見ること。GAS エディタで qCheckAll を実行する
 var Q_SELF_CHECK = {
   properties: [
     'SPREADSHEET_ID',

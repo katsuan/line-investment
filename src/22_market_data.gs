@@ -1,3 +1,10 @@
+/**
+ * 株価を取る：Google Finance のページを読み、MARKET_DATA シートに覚える（数分のあいだは覚えたものを使う）。
+ * 市場がわからない銘柄は、東証・NASDAQ・NYSE・AMEX の順にためす。
+ * 10_bot・11_watch_stats・12_liff_api・00_run から呼ばれる。
+ */
+
+// 銘柄の株価を返す。数分以内に取ったものがあればそれ、なければ市場をためしながら Google Finance から取る。どこもだめなら止まる
 function getMarketQuoteByTicker_(ticker, options) {
   const normalizedTicker = normalizeTickerCode_(ticker);
   const settings = options || {};
@@ -30,11 +37,13 @@ function getMarketQuoteByTicker_(ticker, options) {
   throw new Error('Google Finance quote fetch failed for ' + normalizedTicker);
 }
 
+// MARKET_DATA に、まだ新しい（数分以内に取れた）株価があれば、その行
 function getCachedMarketQuoteRecord_(ticker) {
   const record = getMarketDataRecordByTicker_(ticker);
   return getFreshCachedMarketDataRecord_(record);
 }
 
+// 行が、取れていて（parsed）数分以内のものなら返す。古い・取れていなければ null
 function getFreshCachedMarketDataRecord_(record) {
   if (!record) {
     return null;
@@ -57,6 +66,7 @@ function getFreshCachedMarketDataRecord_(record) {
   return record;
 }
 
+// いくつもの銘柄の株価を { 銘柄: 株価 } で。useLatestCacheOnly なら、古くても覚えたものだけを使う（速く返す）
 function getMarketQuoteMapByTickers_(tickers, options) {
   const normalizedTickers = Array.from(new Set((tickers || []).map(function(ticker) {
     return normalizeTickerCode_(ticker);
@@ -97,6 +107,7 @@ function getMarketQuoteMapByTickers_(tickers, options) {
   return quoteMap;
 }
 
+// MARKET_DATA の行を、株価の形にする
 function marketDataRecordToQuote_(record) {
   return {
     ticker: normalizeTickerCode_(record.ticker),
@@ -114,6 +125,7 @@ function marketDataRecordToQuote_(record) {
   };
 }
 
+// Google Finance のページを1つ読んで株価を取り、MARKET_DATA に書く。{ quote, fetchStatus } を返す
 function fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, marketTicker) {
   const quoteUrl = 'https://www.google.com/finance/quote/' + encodeURIComponent(marketTicker) + '?hl=ja';
   const response = UrlFetchApp.fetch(quoteUrl, {
@@ -183,6 +195,7 @@ function fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, marketTicker) 
   };
 }
 
+// ページの HTML から、見える文字の行だけを取り出す
 function extractGoogleFinanceVisibleLines_(html) {
   return decodeHtmlEntities_(String(html || '')
     .replace(/<script[\s\S]*?<\/script>/gi, '\n')
@@ -198,6 +211,7 @@ function extractGoogleFinanceVisibleLines_(html) {
     });
 }
 
+// 行の中から、銘柄名を探す（市場付きコードのすぐあと）
 function extractGoogleFinanceNameFromLines_(lines, marketTicker) {
   const startIndex = lines.indexOf(marketTicker);
   if (startIndex < 0) {
@@ -218,6 +232,7 @@ function extractGoogleFinanceNameFromLines_(lines, marketTicker) {
   return '';
 }
 
+// 行の中から、株価を探す（銘柄名のあと）
 function extractGoogleFinancePriceFromLines_(lines, marketTicker, name) {
   const startIndex = findGoogleFinanceAnchorIndex_(lines, marketTicker, name);
   if (startIndex < 0) {
@@ -234,6 +249,7 @@ function extractGoogleFinancePriceFromLines_(lines, marketTicker, name) {
   return '';
 }
 
+// 行の中から、前日比（%）を探す（銘柄名のあと）
 function extractGoogleFinanceChangePercentFromLines_(lines, marketTicker, name) {
   const startIndex = findGoogleFinanceAnchorIndex_(lines, marketTicker, name);
   if (startIndex < 0) {
@@ -250,6 +266,7 @@ function extractGoogleFinanceChangePercentFromLines_(lines, marketTicker, name) 
   return '';
 }
 
+// 行の中から、見出し（時価総額・PER など）のすぐあとの値を探す
 function extractGoogleFinanceMetricValueFromLines_(lines, labels) {
   for (let labelIndex = 0; labelIndex < labels.length; labelIndex += 1) {
     const label = labels[labelIndex];
@@ -272,6 +289,7 @@ function extractGoogleFinanceMetricValueFromLines_(lines, labels) {
   return '';
 }
 
+// 探しはじめる行（銘柄名、なければ市場付きコード）
 function findGoogleFinanceAnchorIndex_(lines, marketTicker, name) {
   if (name) {
     const nameIndex = lines.indexOf(name);
@@ -282,6 +300,7 @@ function findGoogleFinanceAnchorIndex_(lines, marketTicker, name) {
   return lines.indexOf(marketTicker);
 }
 
+// 飛ばしてよい行か（アイコンの名前など）
 function isIgnorableGoogleFinanceLine_(line) {
   return [
     'search',
@@ -295,14 +314,17 @@ function isIgnorableGoogleFinanceLine_(line) {
   ].indexOf(line) >= 0;
 }
 
+// 株価の形の行か（¥3,000・$250.00 など）
 function looksLikePriceLine_(line) {
   return /^(US)?[¥￥$]?\d[\d,]*(\.\d+)?$/.test(String(line || '').trim());
 }
 
+// % の形の行か（+1.20% など）
 function looksLikePercentLine_(line) {
   return /^[+-]?\d+(\.\d+)?%$/.test(String(line || '').trim());
 }
 
+// 指標の見出しの行か（始値・時価総額など）
 function isMetricLabelLine_(line) {
   return [
     '始値',
@@ -338,6 +360,7 @@ function isMetricLabelLine_(line) {
   ].indexOf(String(line || '').trim()) >= 0;
 }
 
+// 指標の値の形の行か（数・%・兆や B の付いた数・日付）
 function looksLikeMetricValueLine_(line) {
   const normalized = String(line || '').trim();
   return (
@@ -348,6 +371,7 @@ function looksLikeMetricValueLine_(line) {
   );
 }
 
+// ページの数の文字から、¥ $ , 空白を取る
 function normalizeScrapedNumber_(value) {
   const normalized = String(value || '')
     .replace(/[￥¥$,]/g, '')
@@ -357,10 +381,12 @@ function normalizeScrapedNumber_(value) {
   return normalized;
 }
 
+// ページの整数の文字から、, を取る
 function normalizeScrapedInteger_(value) {
   return String(value || '').replace(/,/g, '').trim();
 }
 
+// ページの % の文字から、( ) % 空白を取る
 function normalizeScrapedPercent_(value) {
   return String(value || '')
     .replace(/[()%]/g, '')
@@ -368,6 +394,7 @@ function normalizeScrapedPercent_(value) {
     .trim();
 }
 
+// &amp; などを文字にもどす
 function decodeHtmlEntities_(text) {
   return String(text || '')
     .replace(/&amp;/g, '&')
@@ -377,6 +404,7 @@ function decodeHtmlEntities_(text) {
     .replace(/&#39;/g, "'");
 }
 
+// 取れたか：名前・株価・高値・安値・出来高のどれかがあれば parsed
 function buildMarketDataFetchStatus_(quote) {
   if (quote.name || quote.price || quote.high || quote.low || quote.volume) {
     return 'parsed';

@@ -1,3 +1,9 @@
+/**
+ * どこでも使う小さな道具：日本時間の日時・ロック・postback の読み取り・銘柄コードの形・数と % の書き方。
+ * どのファイルからも呼ばれる。
+ */
+
+// いまの日本時間を「2026-10-01 09:00:00」の形で返す
 function nowJst_() {
   return Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
 }
@@ -27,6 +33,7 @@ function parseJstDateTime_(value) {
   ));
 }
 
+// 正しい Date か
 function isValidDate_(value) {
   return Object.prototype.toString.call(value) === '[object Date]' && !Number.isNaN(value.getTime());
 }
@@ -36,18 +43,21 @@ function toJstDateTimeText_(value) {
   return isValidDate_(value) ? Utilities.formatDate(value, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss') : value;
 }
 
+// 「OK」の文字の返事を作る（Webhook への返事）
 function createOkTextOutput_() {
   return ContentService
     .createTextOutput('OK')
     .setMimeType(ContentService.MimeType.TEXT);
 }
 
+// JSON の返事を作る（画面への返事）
 function createJsonOutput_(value) {
   return ContentService
     .createTextOutput(JSON.stringify(value))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+// ロックの中で callback を動かす（同時に書いて消しあわないように。G7）。中ではシートを読みなおす
 function withScriptLock_(callback) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -61,6 +71,7 @@ function withScriptLock_(callback) {
   }
 }
 
+// postback の data（a=1&b=2）を { a: "1", b: "2" } にする
 function parsePostbackData_(data) {
   const result = {};
   if (!data) {
@@ -79,10 +90,21 @@ function parsePostbackData_(data) {
   return result;
 }
 
+// JSON を読む。読めないときは null
+function parseJsonSafely_(text) {
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return null;
+  }
+}
+
+// 前後の空白を取る
 function normalizeCommandText_(text) {
   return (text || '').trim();
 }
 
+// JSON の文字にする。できないときは String で
 function safeJsonStringify_(value) {
   try {
     return JSON.stringify(value);
@@ -91,6 +113,7 @@ function safeJsonStringify_(value) {
   }
 }
 
+// エラーの中身を、記録に残す文字にする（stack があればそれ）
 function buildErrorMessage_(error) {
   if (!error) {
     return '';
@@ -98,10 +121,12 @@ function buildErrorMessage_(error) {
   return error.stack || error.message || String(error);
 }
 
+// 銘柄コードを、前後の空白を取って大文字にする
 function normalizeTickerCode_(rawTicker) {
   return String(rawTicker || '').trim().toUpperCase();
 }
 
+// 銘柄コードに市場を付ける（日本株は :TYO、決まりのある米国株は :NASDAQ など。わからなければそのまま）
 function composeMarketTicker_(rawTicker) {
   const ticker = normalizeTickerCode_(rawTicker);
   if (!ticker) {
@@ -120,6 +145,7 @@ function composeMarketTicker_(rawTicker) {
   return ticker;
 }
 
+// 株価のページをためす順の一覧（市場を付けたもの → 米国の市場 → 市場なし）
 function buildMarketTickerCandidates_(rawTicker) {
   const ticker = normalizeTickerCode_(rawTicker);
   const candidates = [];
@@ -153,6 +179,50 @@ function buildMarketTickerCandidates_(rawTicker) {
   return candidates;
 }
 
+// 「#7203」「#AAPL」のような、注目に入れることばか
+function isSupportedWatchTickerCommand_(text) {
+  return /^#[A-Z0-9.-]{1,10}$/i.test(String(text || '').trim());
+}
+
+// 日本株の数字だけのコードか（4〜5桁）
+function looksLikeNumericTicker_(ticker) {
+  return /^\d{4,5}$/.test(String(ticker || '').trim());
+}
+
+// 日本株の英字入りのコードか（例：212A）
+function looksLikeJapaneseAlphaNumericTicker_(ticker) {
+  return /^\d{3,4}[A-Z]$/.test(String(ticker || '').trim().toUpperCase());
+}
+
+// 株探でその銘柄を見る URL（日本株と米国株で分ける）
+function buildKabutanUrl_(ticker) {
+  const normalizedTicker = normalizeTickerCode_(ticker);
+  if (!normalizedTicker) {
+    return 'https://kabutan.jp/';
+  }
+  if (looksLikeNumericTicker_(normalizedTicker) || looksLikeJapaneseAlphaNumericTicker_(normalizedTicker)) {
+    return 'https://s.kabutan.jp/stocks/' + encodeURIComponent(normalizedTicker) + '/';
+  }
+  return 'https://us.kabutan.jp/stocks/' + encodeURIComponent(normalizedTicker) + '/';
+}
+
+// 市場の国旗の絵文字（🇯🇵・🇺🇸。わからなければ空）
+function buildMarketFlagEmoji_(marketTicker) {
+  const normalized = String(marketTicker || '').toUpperCase();
+  if (normalized.indexOf(':TYO') >= 0 || looksLikeNumericTicker_(normalized) || looksLikeJapaneseAlphaNumericTicker_(normalized)) {
+    return '🇯🇵';
+  }
+  if (
+    normalized.indexOf(':NASDAQ') >= 0 ||
+    normalized.indexOf(':NYSE') >= 0 ||
+    normalized.indexOf(':AMEX') >= 0
+  ) {
+    return '🇺🇸';
+  }
+  return '';
+}
+
+// 数を3桁区切りの整数の文字にする（出来高など）。空なら空
 function formatNumberWithCommas_(value) {
   if (value === '' || value === null || typeof value === 'undefined') {
     return '';
@@ -164,6 +234,7 @@ function formatNumberWithCommas_(value) {
   return formatDecimalWithCommas_(number, 0);
 }
 
+// 株価を3桁区切り・小数2桁の文字にする。空なら「-」
 function formatPrice_(value) {
   if (value === '' || value === null || typeof value === 'undefined') {
     return '-';
@@ -175,6 +246,7 @@ function formatPrice_(value) {
   return formatDecimalWithCommas_(number, 2);
 }
 
+// % の数を「1.20%」の文字にする。空なら「-」
 function formatPercent_(value) {
   if (value === '' || value === null || typeof value === 'undefined') {
     return '-';
@@ -202,6 +274,7 @@ function calcPercentDelta_(current, base) {
   return ((current - base) / base) * 100;
 }
 
+// 変化（%）を「+1.23%」「-1.23%」の文字にする。null なら「-」
 function formatSignedPercent_(deltaPercent) {
   if (deltaPercent === null) {
     return '-';
@@ -209,10 +282,12 @@ function formatSignedPercent_(deltaPercent) {
   return (deltaPercent > 0 ? '+' : '') + deltaPercent.toFixed(2) + '%';
 }
 
+// 基準からいまへの変化を「+1.23%」の文字で。どちらかがないときは「-」
 function formatSignedPercentDeltaFromBase_(currentValue, baseValue) {
   return formatSignedPercent_(calcPercentDelta_(toNumberOrNaN_(currentValue), toNumberOrNaN_(baseValue)));
 }
 
+// 「48.5兆」「1.2B」「¥3,000」のような文字を数にする（比べるため）。読めなければ NaN
 function parseComparableScaledNumber_(value) {
   const text = String(value || '').trim().replace(/[￥¥$,]/g, '').replace(/^US/, '');
   if (!text) {
@@ -244,10 +319,12 @@ function parseComparableScaledNumber_(value) {
   return base * (multiplierMap[unit] || 1);
 }
 
+// 「兆」「B」などの付いた数（時価総額）で、基準からの変化を「+1.23%」の文字で
 function formatSignedPercentDeltaFromBaseScaled_(currentValue, baseValue) {
   return formatSignedPercent_(calcPercentDelta_(parseComparableScaledNumber_(currentValue), parseComparableScaledNumber_(baseValue)));
 }
 
+// カードに入れる文字。空のときは fallback（LINE は空の文字を受けつけない）
 function toLineText_(value, fallback) {
   if (value === null || typeof value === 'undefined' || value === '') {
     return typeof fallback === 'undefined' ? '' : String(fallback);
@@ -255,6 +332,7 @@ function toLineText_(value, fallback) {
   return String(value);
 }
 
+// 数を、決めた小数の桁で3桁区切りの文字にする
 function formatDecimalWithCommas_(number, fractionDigits) {
   const fixed = Number(number).toFixed(fractionDigits);
   const parts = fixed.split('.');
@@ -274,42 +352,4 @@ function formatDateDisplayOnly_(value) {
   }
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? text : Utilities.formatDate(parsed, 'Asia/Tokyo', 'yy/MM/dd');
-}
-
-function isSupportedWatchTickerCommand_(text) {
-  return /^#[A-Z0-9.-]{1,10}$/i.test(String(text || '').trim());
-}
-
-function looksLikeNumericTicker_(ticker) {
-  return /^\d{4,5}$/.test(String(ticker || '').trim());
-}
-
-function looksLikeJapaneseAlphaNumericTicker_(ticker) {
-  return /^\d{3,4}[A-Z]$/.test(String(ticker || '').trim().toUpperCase());
-}
-
-function buildKabutanUrl_(ticker) {
-  const normalizedTicker = normalizeTickerCode_(ticker);
-  if (!normalizedTicker) {
-    return 'https://kabutan.jp/';
-  }
-  if (looksLikeNumericTicker_(normalizedTicker) || looksLikeJapaneseAlphaNumericTicker_(normalizedTicker)) {
-    return 'https://s.kabutan.jp/stocks/' + encodeURIComponent(normalizedTicker) + '/';
-  }
-  return 'https://us.kabutan.jp/stocks/' + encodeURIComponent(normalizedTicker) + '/';
-}
-
-function buildMarketFlagEmoji_(marketTicker) {
-  const normalized = String(marketTicker || '').toUpperCase();
-  if (normalized.indexOf(':TYO') >= 0 || looksLikeNumericTicker_(normalized) || looksLikeJapaneseAlphaNumericTicker_(normalized)) {
-    return '🇯🇵';
-  }
-  if (
-    normalized.indexOf(':NASDAQ') >= 0 ||
-    normalized.indexOf(':NYSE') >= 0 ||
-    normalized.indexOf(':AMEX') >= 0
-  ) {
-    return '🇺🇸';
-  }
-  return '';
 }

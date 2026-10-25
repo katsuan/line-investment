@@ -1,3 +1,10 @@
+/**
+ * 返事のカード（Flex）とクイックリプライを作る（使い心地の決まり H2・H3・H10）。
+ *   ルール（ようこそ・確認のお願い・ルール・未確認の一覧）・使い方・ボットが入ったときの案内・Bot設定・
+ *   画面を開くカード・注目のカード・カードの共通の形（色の帯・ボタン）
+ * 10_bot・40_test_window・92_selfcheck.config から呼ばれる。
+ */
+
 // ボットがグループに入ったとき：何ができるかを1枚に（あとで見返せるようにカードで。H10）
 function buildJoinGuideFlexMessage_(watchlistUrl) {
   return buildUsageGuideFlexMessage_({
@@ -56,6 +63,7 @@ function buildUnconfirmedMembersFlexMessage_(rule, members) {
   };
 }
 
+// メンバーが入ったときの、ようこそのカード（ルールと確認のボタン。押せるのは targetUserIds の人）
 function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '新しいメンバーさん';
   return buildRuleAgreementCard_({
@@ -67,6 +75,7 @@ function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
   });
 }
 
+// まだ確認していない人への、ルールの確認のお願いのカード（確認のボタン付き）
 function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '参加者さん';
   return buildRuleAgreementCard_({
@@ -140,6 +149,7 @@ function buildRuleTextContents_(rule, separatorMargin) {
   ];
 }
 
+// ルールの確認のボタンの data（版と、押せる人）。300字をこえるときは、だれでも押せる形にする
 function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
   const ids = (targetUserIds || []).filter(function(id) {
     return !!id;
@@ -167,6 +177,7 @@ function buildRuleAgreementAction_(ruleVersion, targetUserIds) {
   };
 }
 
+// ルールのカードの下：説明と「✅ ルールを確認しました」のボタン
 function buildRuleAgreementFooter_(ruleVersion, targetUserIds) {
   return {
     type: 'box',
@@ -194,6 +205,7 @@ function buildRuleAgreementQuickReply_(ruleVersion, targetUserIds) {
   };
 }
 
+// #ルール のカード（いまのルールの全文）
 function buildRuleFlexMessage_(rule) {
   return {
     type: 'flex',
@@ -213,6 +225,7 @@ function buildRuleFlexMessage_(rule) {
   };
 }
 
+// #Bot設定 のカード。ほかのグループの数は showAccessCounts のときだけ（管理者）
 function buildBotSettingsFlexMessage_(group, options) {
   const showAccessCounts = !!(options && options.showAccessCounts);
   const allowedGroupIds = getAllowedGroupIds_();
@@ -279,6 +292,7 @@ function buildBotSettingsFlexMessage_(group, options) {
   };
 }
 
+// 画面を開くカード（注目一覧か実績）
 function buildLiffLaunchFlexMessage_(liffUrl, view) {
   const isPerformance = view === 'performance';
   const band = isPerformance ? '🏆 注目実績' : '📋 注目一覧';
@@ -323,6 +337,7 @@ function buildLiffLaunchFlexMessage_(liffUrl, view) {
   };
 }
 
+// 使い方のカード：ことばを押すと入力欄に入る。leadText・altText・bandText・showRuleRow で、ボットが入ったときの案内にも使う
 function buildUsageGuideFlexMessage_(options) {
   const settings = options || {};
   const cards = [
@@ -442,6 +457,7 @@ function buildUsageGuideFlexMessage_(options) {
   };
 }
 
+// 注目に入れたときのカード（そのときの株価）
 function buildWatchRegistrationFlexMessage_(record, quote, watchlistUrl) {
   const pickerName = toLineText_(record.addedByDisplayName, '');
   const title = (quote && quote.name) || record.tickerName || ('銘柄コード ' + record.ticker);
@@ -460,6 +476,7 @@ function buildWatchRegistrationFlexMessage_(record, quote, watchlistUrl) {
   });
 }
 
+// もう注目中のときのカード（いまの株価と、注目したときからの騰落率）
 function buildWatchAlreadyActiveFlexMessage_(record, quote, watchlistUrl) {
   const currentPrice = quote && quote.price ? quote.price : '';
   const performanceDelta = formatWatchPerformanceDelta_(record, quote);
@@ -573,6 +590,7 @@ function buildWatchQuoteCard_(options) {
   };
 }
 
+// 時価総額・PER・出来高のうち、あるものだけの箱
 function buildAvailableMetricBoxes_(quote) {
   const contents = [];
 
@@ -589,6 +607,7 @@ function buildAvailableMetricBoxes_(quote) {
   return contents;
 }
 
+// 指標ひとつの箱（小さく見出し、太く値）
 function buildMetricBox_(label, value) {
   return {
     type: 'box',
@@ -614,6 +633,7 @@ function buildMetricBox_(label, value) {
   };
 }
 
+// 前日比の色（上がれば緑・下がれば赤・ほかは灰色）
 function getQuoteChangeColor_(value) {
   const number = Number(value);
   if (Number.isNaN(number) || number === 0) {
@@ -634,10 +654,9 @@ function getSignedTextColor_(text) {
   return '#666666';
 }
 
-// ---- カードの共通の形（使い心地の決まり H2・H3） ----
-
 // この画面・ボットの色（LIFF 画面の --ls-accent と同じ）
 const BOT_ACCENT_COLOR_ = '#0F766E';
+
 const BOT_ACCENT_SUB_TEXT_COLOR_ = '#D2EEE8';
 
 // 色の帯：小さく区分・日付、太く見出し
@@ -666,6 +685,7 @@ function buildCardBandHeader_(smallText, titleText) {
   };
 }
 
+// 色の帯の背景（ボットの色）
 function buildCardBandStyles_() {
   return {
     header: {

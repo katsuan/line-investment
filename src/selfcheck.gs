@@ -14,6 +14,7 @@
  *     cards: function () { return [buildDailySummaryFlexMessage('Utest', {})]; },     // LINE に確かめてもらうメッセージ
  *     richMenus: true,                                           // リッチメニューを確かめる
  *     triggers: ['send20hReminderNotifications'],                // あるはずの時間のトリガー
+ *     heartbeats: { hourlyJob: 130 },                            // 最後に動いてから何分以内なら ✅（関数の頭で qHeartbeat('hourlyJob')）
  *     webAppUrlProperty: 'WEBAPP_URL',                           // Webhook の URL と同じか
  *   };
  *
@@ -139,9 +140,9 @@ function qCheckLine_(add) {
     if (expected && String(endpoint.endpoint || '').indexOf(expected.split('?')[0]) !== 0) {
       add('⚠️', 'LINE', 'Webhook の URL が ' + config.webAppUrlProperty + ' とちがう');
     } else if (endpoint.active) {
-      add('✅', 'LINE', 'Webhook が使われている' + (/[?&]key=/.test(endpoint.endpoint || '') ? '（合言葉つき）' : ''));
+      add('✅', 'LINE', 'Webhook が使われている' + (/[?&](key|token)=/.test(endpoint.endpoint || '') ? '（合言葉つき）' : ''));
     }
-    if (!/[?&]key=/.test(endpoint.endpoint || '')) add('⚠️', 'LINE', 'Webhook の URL に合言葉（?key=）がない。だれでも偽の知らせを送れる');
+    if (!/[?&](key|token)=/.test(endpoint.endpoint || '')) add('⚠️', 'LINE', 'Webhook の URL に合言葉（?key=）がない。だれでも偽の知らせを送れる');
   }
 }
 
@@ -177,17 +178,47 @@ function qCheckRichMenus_(add) {
   else add('⚠️', 'メニュー', 'いつものメニューがない');
 }
 
-// トリガー：あるはずの時間のトリガーがあるか
+// トリガー：あるはずの時間のトリガーがあるか・動いているか。
+// heartbeats を書いた関数は、トリガーの一覧ではなく「最後に動いた時刻」で見る（qHeartbeat を関数の頭で呼ぶ）。
+// ライブラリとして入口の GAS から呼ばれると、トリガーの一覧は入口のものしか見えないため。
 function qCheckTriggers_(add) {
   var config = qSelfCheckConfig_();
-  if (!config.triggers) return;
-  var names = ScriptApp.getProjectTriggers().map(function (t) {
+  var beats = config.heartbeats || {};
+  var names = (config.triggers || []).slice();
+  Object.keys(beats).forEach(function (name) {
+    if (names.indexOf(name) === -1) names.push(name);
+  });
+  if (!names.length) return;
+  var have = ScriptApp.getProjectTriggers().map(function (t) {
     return t.getHandlerFunction();
   });
-  config.triggers.forEach(function (name) {
-    if (names.indexOf(name) !== -1) add('✅', 'トリガー', name);
-    else add('❌', 'トリガー', name + ' のトリガーがない');
+  names.forEach(function (name) {
+    var limit = beats[name];
+    if (!limit) {
+      if (have.indexOf(name) !== -1) add('✅', 'トリガー', name);
+      else add('❌', 'トリガー', name + ' のトリガーがない');
+      return;
+    }
+    var last = PropertiesService.getScriptProperties().getProperty(qHeartbeatKey_(name));
+    if (!last) return add('⚠️', 'トリガー', name + '：動いた記録がまだない（次に動くと出る。続くならトリガーを確かめる）');
+    var lastDate = new Date(last);
+    var when = Utilities.formatDate(lastDate, Session.getScriptTimeZone(), 'M/d H:mm');
+    if ((Date.now() - lastDate.getTime()) / 60000 <= limit) add('✅', 'トリガー', name + '（前回 ' + when + '）');
+    else add('❌', 'トリガー', name + ' が前回 ' + when + ' から動いていない（トリガーとエラーを確かめる）');
   });
+}
+
+// 時間のトリガーで動く関数の頭で呼ぶ：最後に動いた時刻を Script Properties に覚える
+function qHeartbeat(name) {
+  try {
+    PropertiesService.getScriptProperties().setProperty(qHeartbeatKey_(name), new Date().toISOString());
+  } catch (error) {
+    console.warn('qHeartbeat', error);
+  }
+}
+
+function qHeartbeatKey_(name) {
+  return 'Q_HEARTBEAT_' + name;
 }
 
 /**

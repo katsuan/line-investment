@@ -4,31 +4,30 @@ Google Apps Script と LINE Messaging API で動かす、LINE投資グループ�
 
 ## ファイル構成
 
-- `src/00_entry_webapp.gs`: `doGet` / `doPost` と親委譲用の公開入口
-- `src/01_router_webhook_request.gs`: Webhook入力解釈とイベントルーティング
-- `src/02_auth_request_guard.gs`: だれが呼んでいるかの確かめ（Webhook の合言葉・画面の本人確認）
-- `src/10_usecase_line_group_bot.gs`: `join` / `memberJoined` / `postback` / コマンド処理
-- `src/20_infra_line_messaging_api.gs`: LINE Messaging API 呼び出し
-- `src/21_infra_spreadsheet_repository.gs`: スプレッドシート入出力
-- `src/30_view_line_flex_messages.gs`: Flex Message生成
-- `src/90_setup_investment_group_bot.gs`: 初回セットアップ
-- `src/98_shared_utilities.gs`: 共通ユーティリティ
-- `src/93_self_check_config.gs`: 使う前の確かめ（`qCheckAll`）で見ること
-- `src/99_config.gs`: Script Properties と定数
-- `src/99_selfcheck.gs`: 使う前の確かめと `safeCell()`（q-oqrn の `tools/qtest/selfcheck.gs` の写し）
-- `test/`: テスト（`node --test test/`）
-- `src/appsscript.json`: GASマニフェスト
-- `docs/liff/`: GitHub Pages で配信する LIFF フロントの静的ファイル
+GAS のファイルは「番号＋役わり」です（q-oqrn の docs/structure.md）。エディタでも、人が実行するもの・よく見るものが上に来ます。
 
-番号は責務の層を表しています。
-
-- `00`: 公開入口
-- `01`: request / router
-- `10`: usecase
-- `20`: infra
-- `30`: view
-- `90`: setup
-- `98-99`: shared / config
+| ファイル | 中身 |
+|---|---|
+| `src/00_run.gs` | 人が GAS エディタから実行する関数（`checkAll`・`setupInvestmentGroupBot`・`refreshActiveWatchlistMarketCaps`・`updateDefaultRuleVersionOne`）と、人が書きかえる設定（送り主の名前・市場・株価を覚える分数・ルールの文）。いちばん上に、どの順に何を実行するか |
+| `src/01_entry.gs` | 入口：`doPost`・`doGet` と、入口の GAS（親）から呼ばれる `runLineGroupBotPost`・`runLineGroupBotGet`（名前は変えない） |
+| `src/02_router.gs` | Webhook の合言葉を確かめて知らせを振りわける・画面への問い合わせの振りわけ |
+| `src/03_auth.gs` | だれが呼んでいるかの確かめ（Webhook の合言葉・画面の本人確認・グループにいるか・ID のハッシュ） |
+| `src/04_config.gs` | 決まった値と Script Properties の読み書き |
+| `src/05_util.gs` | 日本時間の日時・ロック・銘柄コードの形・数と % の書き方 |
+| `src/10_bot.gs` | グループのボット：知らせとことば（`#ルール`・`#7203`・`#解除` など）を受けて返事をする |
+| `src/11_watch_stats.gs` | 注目の実績：いまの株価を付ける・騰落率・順位・紹介 |
+| `src/12_liff_api.gs` | 画面（LIFF）に返す中身（注目一覧・実績・銘柄ひとつ）と、画面を開く URL |
+| `src/20_line_api.gs` | LINE の Messaging API（返事・プロフィール・送り主） |
+| `src/21_sheet.gs` | スプレッドシートの読み書き |
+| `src/22_market_data.gs` | 株価を取る（Google Finance）と覚える |
+| `src/30_cards.gs` | 返事のカード（Flex）とクイックリプライ |
+| `src/40_test_window.gs` | 管理者のテストの窓口（`#テスト`） |
+| `src/90_setup.gs` | シートの用意の中身・決まりのルール |
+| `src/92_selfcheck.config.gs` | 自己点検で見ること（`Q_SELF_CHECK`） |
+| `src/selfcheck.gs` | 自己点検 `qCheckAll` と `safeCell()`（q-oqrn の `tools/qtest/selfcheck.gs` の写し。中身は同じにする） |
+| `src/appsscript.json` | GAS の設定 |
+| `test/` | テスト（`node --test test/`） |
+| `docs/liff/` | GitHub Pages で出す画面（LIFF）：`index.html`・`app.js`（入口）・`style.css`（見た目）・`config.js`（LIFF ID と問い合わせ先）・`sw.js`（電波がないとき）。`styles.css` は前の名前のファイルで、`style.css` を読むだけ（LINE の中のブラウザが古い HTML を覚えていることがあるため。**2026-11-25 ごろ消す**） |
 
 公開フロントは `src/` と混在させず、`docs/` 配下へ分離しています。
 
@@ -55,15 +54,15 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 ## 初回セットアップ
 
 1. `.clasp.json.example` を `.clasp.json` に複製して `scriptId` を入れ、`clasp push` を実行する（`.clasp.json` は git に入れない）
-2. Apps Script エディタで `setupInvestmentGroupBot` を1回実行する
+2. Apps Script エディタで `00_run.gs` を開き、`setupInvestmentGroupBot` を1回実行する
 3. `GROUPS`, `MEMBERS`, `RULES`, `EVENT_LOG` シートが作成されたことを確認する
 4. `RULES` に Version 1 が投入されていることを確認する
 
 ## 使う前の確かめ
 
-`clasp push` のあとや、設定を変えたあとは、GAS エディタで `qCheckAll` を実行し、実行ログを見ます（✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す）。
+`clasp push` のあとや、設定を変えたあとは、GAS エディタで `00_run.gs` の `checkAll`（中身は `qCheckAll`）を実行し、実行ログを見ます（✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す）。
 Script Properties・シートの見出し・LINE の鍵と Webhook（合言葉つきか）・主なカードが LINE に受けつけられる形か、を確かめます。何も書きこまず、LINE にも送りません。
-見る項目は `src/93_self_check_config.gs` の `Q_SELF_CHECK` です。
+見る項目は `src/92_selfcheck.config.gs` の `Q_SELF_CHECK` です。
 
 ## テスト
 

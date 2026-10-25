@@ -1,11 +1,16 @@
-// 管理者のテストの窓口（使い心地の決まり H11）
-// 管理者が、ボットとの 1:1 のトークで「#テスト」（#test も）と送ると、🧪 テストのカードが返る。
-// グループやふつうの人には見せない（1:1 のトークは、ほかの知らせと同じく何も返さない）。
-// 本物の記録・シート・グループには書かない、送らない。返事（reply）だけで返し、push は使わない。
+/**
+ * 管理者のテストの窓口（使い心地の決まり H11）。
+ * 管理者が、ボットとの 1対1 のトークで「#テスト」（#test も）と送ると、🧪 テストのカードが返る。
+ * 見本（ためしのデータ）・自己点検・カードが断られたときの文を、押すだけで見られる。
+ * 本物の記録・シート・グループには書かない、送らない。返事（reply）だけで返し、push は使わない。
+ * 02_router から呼ばれる（1対1 のトークの知らせ）。
+ */
 
 const ADMIN_TEST_SAMPLES_PER_PAGE_ = 4; // 1回の返事は5通まで。見本4通＋説明のぶん
+
 const ADMIN_TEST_MARK_ = '🧪';
 
+// 「#テスト」「#test」か
 function isAdminTestCommand_(text) {
   return /^#(テスト|test)$/i.test(String(text || ''));
 }
@@ -32,6 +37,7 @@ function handleDirectChatEvent_(event) {
   }
 }
 
+// テストの窓口の返事：見本・自己点検・断られたとき・テストのカードのどれか（下にテストのボタン）
 function replyAdminTest_(replyToken, kind, page) {
   let messages;
   if (kind === 'samples') {
@@ -49,12 +55,12 @@ function replyAdminTest_(replyToken, kind, page) {
   sendReplyMessage_(replyToken, messages, '', { quickReply: buildAdminTestQuickReply_() });
 }
 
-// ---- 見本（中身はためしのデータ） ----
-
+// 見本に使う画面の URL（ないときは例の URL）
 function getAdminTestSampleUrl_() {
   return getLiffAppBaseUrl_() || 'https://example.com/liff/';
 }
 
+// 見本に使う注目の行と株価（ためしのデータ）
 function buildAdminTestSampleWatch_() {
   return {
     record: {
@@ -65,6 +71,7 @@ function buildAdminTestSampleWatch_() {
   };
 }
 
+// 返事の見本を全部（カードと文。ためしのデータ）
 function buildAdminTestSampleMessages_() {
   const rule = buildDefaultRuleRecord_();
   const url = getAdminTestSampleUrl_();
@@ -91,10 +98,12 @@ function buildAdminTestSampleMessages_() {
   ];
 }
 
+// 見本を何回に分けて見せるか
 function getAdminTestSamplePageCount_() {
   return Math.ceil(buildAdminTestSampleMessages_().length / ADMIN_TEST_SAMPLES_PER_PAGE_);
 }
 
+// 見本のその回の分（説明の文＋見本4通。すべて 🧪 付き）
 function buildAdminTestSamplePage_(page) {
   const all = buildAdminTestSampleMessages_();
   const pageCount = Math.ceil(all.length / ADMIN_TEST_SAMPLES_PER_PAGE_);
@@ -150,8 +159,7 @@ function disableNonUriActions_(node) {
   });
 }
 
-// ---- 自己点検 ----
-
+// 自己点検（qCheckAll）の結果を文にする
 function buildAdminTestSelfCheckMessage_() {
   let summary;
   try {
@@ -172,8 +180,7 @@ function buildAdminTestSelfCheckMessage_() {
   return { type: 'text', text: summary.slice(0, 4900) };
 }
 
-// ---- カードが断られたとき（H5）：本物では push で送る文を、reply で見せる ----
-
+// カードが断られたときにグループに届く文の見本
 function buildAdminTestFallbackMessage_() {
   const watch = buildAdminTestSampleWatch_();
   const sample = buildWatchRegistrationFlexMessage_(watch.record, watch.quote, getAdminTestSampleUrl_());
@@ -184,8 +191,7 @@ function buildAdminTestFallbackMessage_() {
   };
 }
 
-// ---- テストのカード ----
-
+// 🧪 テストのカード（何を試せるか）
 function buildAdminTestMenuFlexMessage_() {
   const pageCount = getAdminTestSamplePageCount_();
   const items = [
@@ -247,6 +253,7 @@ function buildAdminTestQuickReply_() {
   return { items: items.slice(0, 13) };
 }
 
+// テストの窓口のクイックリプライ1つ（postback）
 function buildAdminTestQuickReplyItem_(label, query) {
   return {
     type: 'action',
