@@ -244,29 +244,31 @@ function cardActions(messages) {
   return found;
 }
 // あとで押されても困らないもの：画面・URL を開く／文字を送る（聞き返す・#コードで新しく記録）／入力欄に文字を入れるだけ
-const isSafeLater = (a) => a.type === "uri" || a.type === "message" || (a.type === "postback" && /^action=usage_prefill/.test(a.data));
+// ルールの確認（agree_rules）は、押されるたびにボットが状態を見て返す（確認ずみ・古い版・ほかの人）ので、あとで押されてもよい
+const isSafeLater = (a) => a.type === "uri" || a.type === "message" || (a.type === "postback" && /^action=(usage_prefill|agree_rules)/.test(a.data));
 const agree = (gas, userId, data) =>
   event(gas, { type: "postback", replyToken: "r-" + Math.random(), source: { type: "group", groupId: GROUP, userId }, postback: { data } });
 
-test("カードのボタンは、あとで押されても困らないものだけ（ルールの確認はクイックリプライ）", () => {
+test("カードのボタンは、あとで押されても困らないものだけ（ルールの確認はカードとクイックリプライの両方）", () => {
   const gas = make({ ALLOWED_USER_IDS: [MEMBER, NEWCOMER].join(",") });
   ["#ルール", "#使い方", "#注目一覧", "#注目実績", "#Bot設定", "#7203", "#6758"].forEach((t) => text(gas, t));
   text(gas, "#注目一覧", OUTSIDER);
   event(gas, { type: "memberJoined", replyToken: "r", source: { type: "group", groupId: GROUP }, joined: { members: [{ type: "user", userId: NEWCOMER }] } });
   const all = gas.replies().flatMap((r) => r.messages);
   assert.deepEqual(cardActions(all).filter((a) => !isSafeLater(a)), []);
-  // 入ってきた人・未確認の人には、最後のメッセージのクイックリプライに「確認しました」
+  // 入ってきた人・未確認の人には、カードのボタンとクイックリプライの両方に「確認しました」（同じ postback）
   const prompts = gas.replies().slice(-2).map((r) => r.messages[r.messages.length - 1]);
   prompts.forEach((m) => {
-    // クイックリプライが消えたあとでも通じる文と、出しなおすボタン（#ルール を送るだけ）
-    assert.match(JSON.stringify(m.contents), /出していないとき|出ていないとき/);
-    assert.ok(cardActions([m]).some((a) => a.type === "message" && a.text === "#ルール"));
-    assert.ok(m.quickReply.items.some((it) => /^action=agree_rules/.test(it.action.data || "")));
+    const onCard = cardActions([m]).filter((a) => a.type === "postback" && /^action=agree_rules/.test(a.data));
+    assert.equal(onCard.length, 1, "カードにも確認のボタン");
+    assert.equal(onCard[0].displayText, "✅ ルールを確認しました");
+    assert.ok(m.quickReply.items.some((it) => it.action.data === onCard[0].data), "クイックリプライと同じ");
+    assert.doesNotMatch(JSON.stringify(m.contents), /出ていないとき/, "回り道の文はいらない");
     assert.deepEqual(gas.flexProblems([m]).filter((p) => p.level === "error"), []);
   });
 });
 
-test("カードの「📜 ルールを確認する」で、確認のクイックリプライが出なおす", () => {
+test("未確認の人の #ルール には、確認のボタンを出しなおす", () => {
   const gas = make();
   text(gas, "#ルール", NEWCOMER);
   const last = gas.lastMessages().slice(-1)[0];
@@ -565,4 +567,19 @@ test("テストの窓口：どれを押しても reply で返り、本物には�
   cardActions(samples).forEach((a) => assert.ok(a.type === "uri" || /^action=qtest/.test(a.data), JSON.stringify(a)));
   // 断られたときの文
   assert.ok(replies.some((r) => /文字だけで返しました/.test(JSON.stringify(r.messages))));
+});
+
+test("カードの「確認しました」を何日もあとに押しても、ボットが状態を見て返す", () => {
+  const gas = make();
+  text(gas, "#ルール", NEWCOMER);
+  const data = cardActions(gas.lastMessages()).find((a) => /^action=agree_rules/.test(a.data)).data;
+  agree(gas, NEWCOMER, data);
+  assert.match(replyTexts(gas), /ルールの確認を記録しました/);
+  assert.equal(gas.call("getAllowedUserIds_").includes(NEWCOMER), true);
+  gas.reset();
+  agree(gas, NEWCOMER, data); // 同じカードを、あとでもう一度
+  assert.match(replyTexts(gas), /もう記録しています/);
+  gas.reset();
+  agree(gas, MEMBER, data); // ほかの人が押した
+  assert.match(replyTexts(gas), /案内した人のため/);
 });

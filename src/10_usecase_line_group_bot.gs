@@ -67,7 +67,7 @@ function handleMemberJoined_(event) {
   });
 
   const rule = getCurrentRuleForGroup_(groupId);
-  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames)], groupId, {
+  sendReplyMessage_(event.replyToken, [buildWelcomeFlexMessage_(rule, displayNames, targetUserIds)], groupId, {
     quickReply: buildRuleAgreementQuickReply_(rule.version, targetUserIds),
   });
   logEventResult_(event, 'member_joined_reply', 'success', 'welcome flex sent', '');
@@ -244,7 +244,7 @@ function replyText_(context, text, options) {
 // ルールの確認のカード＋「✅ ルールを確認しました」のクイックリプライ（押せるのは userIds の人だけ）
 function replyRuleConfirmationPrompt_(replyToken, groupId, rule, displayNames, userIds, leadMessages) {
   sendReplyMessage_(replyToken, (leadMessages || []).concat([
-    buildRuleConfirmationPromptFlexMessage_(rule, displayNames),
+    buildRuleConfirmationPromptFlexMessage_(rule, displayNames, userIds),
   ]), groupId, { quickReply: buildRuleAgreementQuickReply_(rule.version, userIds) });
 }
 
@@ -300,7 +300,7 @@ function handleRuleCommand_(context) {
   if (isAccessAllowed_(groupId, context.userId)) {
     sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, { quickReply: buildMainQuickReply_(groupId) });
   } else {
-    // まだ確認していない人（ルールのカードの「📜 ルールを確認する」から来る）には、確認のクイックリプライを出しなおす
+    // まだ確認していない人には、確認のボタン付きのカードを出す
     const actor = getActorProfileForGroup_(groupId, context.userId);
     replyRuleConfirmationPrompt_(event.replyToken, groupId, rule, actor.displayName ? [actor.displayName] : [], [context.userId]);
   }

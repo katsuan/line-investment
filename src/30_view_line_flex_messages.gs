@@ -56,23 +56,25 @@ function buildUnconfirmedMembersFlexMessage_(rule, members) {
   };
 }
 
-function buildWelcomeFlexMessage_(rule, displayNames) {
+function buildWelcomeFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '新しいメンバーさん';
   return buildRuleAgreementCard_({
     altText: '投資情報共有グループへようこそ',
     header: buildCardBandHeader_('👋 ようこそ', '投資情報共有グループへようこそ'),
     leadText: namesText + '、参加ありがとうございます。',
     rule: rule,
+    targetUserIds: targetUserIds,
   });
 }
 
-function buildRuleConfirmationPromptFlexMessage_(rule, displayNames) {
+function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserIds) {
   const namesText = displayNames.length > 0 ? displayNames.join('、') + 'さん' : '参加者さん';
   return buildRuleAgreementCard_({
     altText: 'ルール確認のお願い',
     header: buildCardBandHeader_('📜 はじめに', 'ルールの確認をお願いします'),
     leadText: namesText + '、使う前に、ルールを読んで「確認しました」を押してね。',
     rule: rule,
+    targetUserIds: targetUserIds,
   });
 }
 
@@ -99,7 +101,7 @@ function buildRuleAgreementCard_(options) {
           },
         ].concat(buildRuleTextContents_(options.rule, 'sm')),
       },
-      footer: buildRuleAgreementFooter_(),
+      footer: buildRuleAgreementFooter_(options.rule.version, options.targetUserIds),
     },
   };
 }
@@ -153,9 +155,19 @@ function buildAgreeRulesPostbackData_(ruleVersion, targetUserIds) {
   return data;
 }
 
-// ルールの確認は1回きりなので、カードには置かず、クイックリプライ（buildRuleAgreementQuickReply_）で押してもらう（H2）。
-// クイックリプライは次のメッセージで消えるので、カードには、あとで見てもわかる文と、出しなおすボタン（#ルール を送るだけ）を置く
-function buildRuleAgreementFooter_() {
+// ルールの確認のボタン（postback）。カードはトークに残り、何日もあとに押されることもあるが、
+// 押されるたびにボットが状態を見て返す（もう確認ずみ・古い版・ほかの人のボタンも、やさしく返す）ので、カードに置いてよい
+function buildRuleAgreementAction_(ruleVersion, targetUserIds) {
+  const label = '✅ ルールを確認しました';
+  return {
+    type: 'postback',
+    label: label,
+    data: buildAgreeRulesPostbackData_(ruleVersion, targetUserIds),
+    displayText: label,
+  };
+}
+
+function buildRuleAgreementFooter_(ruleVersion, targetUserIds) {
   return {
     type: 'box',
     layout: 'vertical',
@@ -163,30 +175,21 @@ function buildRuleAgreementFooter_() {
     contents: [
       {
         type: 'text',
-        text: 'ルールを読んだら、トークのいちばん下に出る「✅ ルールを確認しました」を押してね。出ていないときは、このボタンで出しなおせます。',
+        text: 'ルールを読んだら「✅ ルールを確認しました」を押してね。',
         size: 'xs',
         color: '#666666',
         wrap: true,
       },
-      buildCardButton_('📜 ルールを確認する', { type: 'message', label: '📜 ルールを確認する', text: '#ルール' }, true),
+      buildCardButton_('✅ ルールを確認しました', buildRuleAgreementAction_(ruleVersion, targetUserIds), true),
     ],
   };
 }
 
-// ルールの確認のクイックリプライ（返事の最後のメッセージに付ける。グループのみんなに見えるので、押せる人は postback の中で決める）
+// 同じボタンを、トークのいちばん下（クイックリプライ）にも出す。押せる人は postback の中で決める
 function buildRuleAgreementQuickReply_(ruleVersion, targetUserIds) {
-  const label = '✅ ルールを確認しました';
   return {
     items: [
-      {
-        type: 'action',
-        action: {
-          type: 'postback',
-          label: label,
-          data: buildAgreeRulesPostbackData_(ruleVersion, targetUserIds),
-          displayText: label,
-        },
-      },
+      { type: 'action', action: buildRuleAgreementAction_(ruleVersion, targetUserIds) },
     ],
   };
 }

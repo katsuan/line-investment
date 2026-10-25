@@ -73,8 +73,8 @@ function buildAdminTestSampleMessages_() {
   const quote = watch.quote;
   return [
     buildJoinGuideFlexMessage_(url),
-    buildWelcomeFlexMessage_(rule, ['ためしの人']),
-    buildRuleConfirmationPromptFlexMessage_(rule, ['ためしの人']),
+    buildWelcomeFlexMessage_(rule, ['ためしの人'], []),
+    buildRuleConfirmationPromptFlexMessage_(rule, ['ためしの人'], []),
     buildRuleFlexMessage_(rule),
     buildUnconfirmedMembersFlexMessage_(rule, [{ displayName: 'ためしの人' }, { displayName: '' }]),
     buildUnconfirmedMembersFlexMessage_(rule, []),

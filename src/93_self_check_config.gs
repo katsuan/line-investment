@@ -33,7 +33,7 @@ var Q_SELF_CHECK = {
       buildJoinGuideFlexMessage_(url),
       buildUnconfirmedMembersFlexMessage_(rule, [{ displayName: 'テスト' }]),
       buildRuleFlexMessage_(rule),
-      Object.assign(buildRuleConfirmationPromptFlexMessage_(rule, ['テスト']), {
+      Object.assign(buildRuleConfirmationPromptFlexMessage_(rule, ['テスト'], ['U00000000000000000000000000000000']), {
         quickReply: buildRuleAgreementQuickReply_(rule.version, ['U00000000000000000000000000000000']),
       }),
       buildUsageGuideFlexMessage_({ watchlistUrl: url }),
