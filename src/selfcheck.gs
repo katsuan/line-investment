@@ -21,6 +21,7 @@
  * 結果の印：✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す
  */
 
+// GAS エディタで実行する（使う前・設定を変えたあと）。設定・シート・LINE・カード・リッチメニュー・トリガーを確かめ、結果を実行ログに出す。何も書きこまない。{ ok, results } を返す
 function qCheckAll() {
   var results = [];
   var add = function (level, area, text) {
@@ -43,6 +44,7 @@ function qCheckAll() {
   return { ok: !mark['❌'], results: results };
 }
 
+// プロジェクトに書いた Q_SELF_CHECK（なければ空。その確かめを飛ばす）
 function qSelfCheckConfig_() {
   return typeof Q_SELF_CHECK === 'undefined' ? {} : Q_SELF_CHECK;
 }
@@ -111,12 +113,14 @@ function qCheckSheets_(add) {
   });
 }
 
+// LINE のチャネルアクセストークン（Q_SELF_CHECK.lineTokenProperty の名前の Script Property）
 function qLineToken_() {
   var config = qSelfCheckConfig_();
   var key = config.lineTokenProperty || 'LINE_CHANNEL_ACCESS_TOKEN';
   return PropertiesService.getScriptProperties().getProperty(key);
 }
 
+// LINE の API を GET で呼び、{ code, body } を返す（確かめるだけの API に使う）
 function qLineGet_(path) {
   var res = UrlFetchApp.fetch('https://api.line.me' + path, {
     headers: { Authorization: 'Bearer ' + qLineToken_() },
@@ -217,6 +221,7 @@ function qHeartbeat(name) {
   }
 }
 
+// 「最後に動いた時刻」を入れる Script Property の名前
 function qHeartbeatKey_(name) {
   return 'Q_HEARTBEAT_' + name;
 }
