@@ -34,6 +34,9 @@ function lineFetch(url, opt) {
     return name ? response(200, { displayName: name, userId: decodeURIComponent(m[2]) }) : response(404, { message: "Not found" });
   }
   if (/\/v2\/bot\/group\/[^/]+\/summary$/.test(url)) return response(200, { groupName: "投資の会" });
+  // 今月の送信数（共通の自己点検 selfcheck.gs が読む）
+  if (/\/v2\/bot\/message\/quota\/consumption$/.test(url)) return response(200, { totalUsage: 10 });
+  if (/\/v2\/bot\/message\/quota$/.test(url)) return response(200, { type: "limited", value: 200 });
   if (/google\.com\/finance\/quote\/7203/.test(url)) {
     // 相場のページの文字も「外からの文字」
     return response(200, `<div>7203:TYO</div><div>${FORMULA.replace(/"/g, "&quot;")}</div><div>¥3,000</div><div>+1.20%</div>`);
@@ -616,4 +619,10 @@ test("ファイルの先頭と、関数の前に、コメントがある", () =>
       if (/^function /.test(line)) assert.match(lines[i - 1].trim(), /^\/\/|\*\/$/, f + "：" + line);
     });
   });
+});
+
+test("#テスト の 🩺 自己点検に、今月の LINE の送信数が出る（読むだけ）", () => {
+  const gas = make();
+  const message = fresh(gas).call("buildAdminTestSelfCheckMessage_");
+  assert.match(message.text, /✅ \[送信数\] 今月 10 通 ／ 上限 200 通（のこり 190）/);
 });

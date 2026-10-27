@@ -10,7 +10,8 @@
  *     secretProperties: ['LINE_CHANNEL_ACCESS_TOKEN'],           // 鍵：コードに同じ値が書かれていないかも見る
  *     spreadsheetId: function () { return PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID'); },
  *     sheets: { users: ['userId', 'displayName'], meal_logs: ['mealDate', 'userId'] }, // シートと、1行目の見出し
- *     lineTokenProperty: 'LINE_CHANNEL_ACCESS_TOKEN',
+ *     lineTokenProperty: 'LINE_CHANNEL_ACCESS_TOKEN',               // LINE の鍵の Script Property の名前（鍵・今月の送信数を見る。値は出さない）
+ *     quota: false,                                              // 今月の送信数を見ないとき（ふつうは書かない）
  *     cards: function () { return [buildDailySummaryFlexMessage('Utest', {})]; },     // LINE に確かめてもらうメッセージ
  *     richMenus: true,                                           // リッチメニューを確かめる
  *     triggers: ['send20hReminderNotifications'],                // あるはずの時間のトリガー
@@ -21,13 +22,13 @@
  * 結果の印：✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す
  */
 
-// GAS エディタで実行する（使う前・設定を変えたあと）。設定・シート・LINE・カード・リッチメニュー・トリガーを確かめ、結果を実行ログに出す。何も書きこまない。{ ok, results } を返す
+// GAS エディタで実行する（使う前・設定を変えたあと）。設定・シート・LINE・今月の送信数・カード・リッチメニュー・トリガーを確かめ、結果を実行ログに出す。何も書きこまない。{ ok, results } を返す
 function qCheckAll() {
   var results = [];
   var add = function (level, area, text) {
     results.push({ level: level, area: area, text: text });
   };
-  var steps = [qCheckProperties_, qCheckSheets_, qCheckLine_, qCheckCards_, qCheckRichMenus_, qCheckTriggers_];
+  var steps = [qCheckProperties_, qCheckSheets_, qCheckLine_, qCheckQuota_, qCheckCards_, qCheckRichMenus_, qCheckTriggers_];
   steps.forEach(function (step) {
     try {
       step(add);
@@ -148,6 +149,36 @@ function qCheckLine_(add) {
     }
     if (!/[?&](key|token)=/.test(endpoint.endpoint || '')) add('⚠️', 'LINE', 'Webhook の URL に合言葉（?key=）がない。だれでも偽の知らせを送れる');
   }
+}
+
+// 今月の送信数：LINE の上限（/v2/bot/message/quota）と今月の数（…/quota/consumption）を読むだけ（何も送らない。鍵は出さない）。
+// 8割をこえたら ⚠️、上限に着いたら ❌、上限なし（従量のプラン）は ✅。読めないときも点検は止めず ⚠️ と理由
+function qCheckQuota_(add) {
+  var config = qSelfCheckConfig_();
+  if (config.quota === false) return;
+  if (!qLineToken_()) return config.lineTokenProperty ? add('⚠️', '送信数', 'LINE の鍵がないので、今月の送信数を読めません') : undefined;
+  try {
+    var quota = qLineGet_('/v2/bot/message/quota');
+    var used = qLineGet_('/v2/bot/message/quota/consumption');
+    if (quota.code !== 200 || used.code !== 200) {
+      return add('⚠️', '送信数', '今月の送信数を読めませんでした（' + (quota.code !== 200 ? quota.code : used.code) + '）');
+    }
+    var total = Number(JSON.parse(used.body).totalUsage) || 0;
+    var plan = JSON.parse(quota.body);
+    if (plan.type !== 'limited') return add('✅', '送信数', '今月 ' + qNumber_(total) + ' 通（上限なし）');
+    var limit = Number(plan.value) || 0;
+    var text = '今月 ' + qNumber_(total) + ' 通 ／ 上限 ' + qNumber_(limit) + ' 通（のこり ' + qNumber_(Math.max(0, limit - total)) + '）';
+    if (total >= limit) add('❌', '送信数', text + '。上限に着いたので、push で送るメッセージは届きません（返事の reply は送れます）');
+    else if (total > limit * 0.8) add('⚠️', '送信数', text + '。8割をこえました');
+    else add('✅', '送信数', text);
+  } catch (error) {
+    add('⚠️', '送信数', '今月の送信数を読めませんでした（' + String((error && error.message) || error).slice(0, 80) + '）');
+  }
+}
+
+// 数を 3けたごとの「,」付きの文字にする
+function qNumber_(n) {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 // カード：LINE に「送れるか」だけ確かめてもらう（送らない）
