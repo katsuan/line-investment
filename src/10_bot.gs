@@ -14,25 +14,30 @@ function handleJoin_(event) {
     logEventResult_(event, 'join_ignored', 'ignored', 'group is not allowed', '');
     return;
   }
-  let groupName = '';
-  try {
-    const summary = getGroupSummary_(groupId);
-    groupName = summary.groupName || '';
-  } catch (error) {
-    logEventResult_(event, 'get_group_summary', 'error', 'group summary fetch failed', buildErrorMessage_(error));
-  }
-
-  upsertGroupRecord_({
-    groupId: groupId,
-    groupName: groupName,
-    enabled: true,
-    ruleVersion: DEFAULT_RULE_VERSION_,
-  });
+  registerGroup_(event, groupId, getGroupSummary_);
 
   sendReplyMessage_(event.replyToken, [buildJoinGuideFlexMessage_(buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
     quickReply: buildMainQuickReply_(groupId),
   });
   logEventResult_(event, 'join_reply', 'success', 'group registered and guide sent', '');
+}
+
+// GROUPS にグループを記録する（名前は LINE に聞く。聞けなくても続ける）。
+// ルールの版は、はじめて記録するときだけ決める（入りなおし・#グループ許可で 1 にもどさない）
+function registerGroup_(event, groupId, fetchSummary) {
+  let groupName = '';
+  try {
+    const summary = fetchSummary(groupId);
+    groupName = summary && summary.groupName ? summary.groupName : '';
+  } catch (error) {
+    logEventResult_(event, 'get_group_summary', 'error', 'group summary fetch failed', buildErrorMessage_(error));
+  }
+
+  const record = { groupId: groupId, groupName: groupName, enabled: true };
+  if (!getGroupRecord_(groupId)) {
+    record.ruleVersion = DEFAULT_RULE_VERSION_;
+  }
+  upsertGroupRecord_(record);
 }
 
 // メンバーが入ったとき：記録して、ようこそのカード（ルールの確認のボタン付き。押せるのは入った人だけ）を返す
@@ -87,7 +92,6 @@ function handlePostback_(event) {
   assertGroupEvent_(event);
 
   const groupId = event.source.groupId;
-  const userId = event.source.userId || '';
   const params = parsePostbackData_((event.postback || {}).data);
   if (params.action === 'usage_prefill') {
     logEventResult_(event, 'usage_prefill', 'success', 'keyboard prefill opened', params.command || '');
@@ -105,6 +109,24 @@ function handlePostback_(event) {
 
   if (!isGroupAccessAllowed_(groupId)) {
     logEventResult_(event, 'postback_denied', 'ignored', 'group is not allowed', '');
+    return;
+  }
+
+  handleAgreeRulesPostback_(event, params);
+}
+
+// 「✅ ルールを確認しました」：押されるたびに状態を見て返す（だれかわからない・ほかの人・古い版・もう確認ずみ・はじめて）
+function handleAgreeRulesPostback_(event, params) {
+  const groupId = event.source.groupId;
+  const userId = event.source.userId || '';
+
+  if (!userId) {
+    // LINE が押した人を知らせてこなかった（記録できないので、書かずに返す）
+    sendReplyMessage_(event.replyToken, [{
+      type: 'text',
+      text: 'だれが押したのかが、わかりませんでした。LINE のアプリを新しくしてから、もう一度押してね。',
+    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    logEventResult_(event, 'agree_rules', 'ignored', 'userId missing', '');
     return;
   }
 
@@ -142,6 +164,11 @@ function handlePostback_(event) {
     return;
   }
 
+  recordRuleAgreement_(event, groupId, userId, ruleVersion);
+}
+
+// ルールの確認を記録し（MEMBERS と、使ってよい人の一覧）、使い方のカードで返す
+function recordRuleAgreement_(event, groupId, userId, ruleVersion) {
   let displayName = '';
   try {
     const profile = getGroupMemberProfile_(groupId, userId);
@@ -269,20 +296,7 @@ function handleGroupAllowCommand_(context) {
   }
 
   addAllowedGroupId_(groupId);
-  let groupName = '';
-  try {
-    const summary = getCachedGroupSummary_(groupId);
-    groupName = summary && summary.groupName ? summary.groupName : '';
-  } catch (error) {
-    groupName = '';
-  }
-
-  upsertGroupRecord_({
-    groupId: groupId,
-    groupName: groupName,
-    enabled: true,
-    ruleVersion: DEFAULT_RULE_VERSION_,
-  });
+  registerGroup_(event, groupId, getCachedGroupSummary_);
 
   replyText_(context, 'このグループで使えるようにしました。\n新しく入った人には、ルールの案内を送ります。');
   logEventResult_(event, 'command_group_allow', 'success', 'group allowed', groupId);
@@ -427,10 +441,19 @@ function handleWatchAddCommand_(context) {
   const actor = getActorProfileForGroup_(groupId, userId);
   const activeRecord = getActiveWatchlistRecordByTicker_(groupId, ticker);
   let quoteAtRegistration = null;
+  let unreachable = false;
   try {
     quoteAtRegistration = getMarketQuoteByTicker_(ticker, { forceRefresh: true });
   } catch (error) {
+    unreachable = error.kind === 'unreachable';
     logEventResult_(event, 'market_quote_fetch', 'error', 'quote fetch failed on watch add', buildErrorMessage_(error));
+  }
+
+  if (unreachable) {
+    // コードのまちがいではなく、株価のページにつながらなかった
+    replyText_(context, ticker + ' の株価のページに、いまつながりませんでした。\n少し待って、もう一度送ってね。', { mainQuickReply: true });
+    logEventResult_(event, 'command_watch_add', 'ignored', 'quote page unreachable', ticker);
+    return;
   }
 
   if (!hasUsableQuoteForWatchAdd_(quoteAtRegistration)) {

@@ -626,3 +626,40 @@ test("#テスト の 🩺 自己点検に、今月の LINE の送信数が出る
   const message = fresh(gas).call("buildAdminTestSelfCheckMessage_");
   assert.match(message.text, /✅ \[送信数\] 今月 10 通 ／ 上限 200 通（のこり 190）/);
 });
+
+// ---- 端の場合（2026-10-29 の見直し） ----
+
+test("ボタンを押した人の userId がわからないときは、記録せずに返す", () => {
+  const gas = make();
+  const before = JSON.stringify(gas.rows("MEMBERS"));
+  event(gas, { type: "postback", replyToken: "r", source: { type: "group", groupId: GROUP }, postback: { data: "action=agree_rules&ruleVersion=1" } });
+  assert.equal(JSON.stringify(gas.rows("MEMBERS")), before, "空の人を MEMBERS に書かない");
+  assert.equal(gas.call("getAllowedUserIds_").includes(""), false);
+  assert.equal(gas.replies().length, 1, "黙らない");
+});
+
+test("株価のページにまったくつながらないときは、コードのまちがいとは言わない", () => {
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER },
+    fetch: (url, opt) => {
+      if (/google\.com\/finance/.test(url)) throw new Error("Timeout");
+      return lineFetch(url, opt);
+    },
+  });
+  setupSheets(g);
+  g.reset();
+  text(g, "#7203");
+  assert.doesNotMatch(replyTexts(g), /コードを確かめて/);
+  assert.match(replyTexts(g), /つながりませんでした/);
+  assert.equal(g.rows("WATCHLIST").length, 1, "注目には入れない");
+});
+
+test("#グループ許可・入りなおしで、グループのルールの版を 1 にもどさない", () => {
+  const gas = make();
+  const hdr = gas.rows("GROUPS")[0];
+  gas.seed("GROUPS", [hdr, [GROUP, "投資の会", true, 2, "2026-10-01 09:00:00", "2026-10-01 09:00:00"]]);
+  text(gas, "#グループ許可", ADMIN);
+  event(gas, { type: "join", replyToken: "j", source: { type: "group", groupId: GROUP } });
+  assert.equal(Number(gas.rows("GROUPS")[1][3]), 2);
+});

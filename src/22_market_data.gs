@@ -4,7 +4,8 @@
  * 10_bot・11_watch_stats・12_liff_api・00_run から呼ばれる。
  */
 
-// 銘柄の株価を返す。数分以内に取ったものがあればそれ、なければ市場をためしながら Google Finance から取る。どこもだめなら止まる
+// 銘柄の株価を返す。数分以内に取ったものがあればそれ、なければ市場をためしながら Google Finance から取る。
+// どこもだめなら止まる（error.kind：unreachable＝どこにもつながらない／not_found＝銘柄がない）
 function getMarketQuoteByTicker_(ticker, options) {
   const normalizedTicker = normalizeTickerCode_(ticker);
   const settings = options || {};
@@ -34,7 +35,10 @@ function getMarketQuoteByTicker_(ticker, options) {
     return lastResult.quote;
   }
 
-  throw new Error('Google Finance quote fetch failed for ' + normalizedTicker);
+  const error = new Error('Google Finance quote fetch failed for ' + normalizedTicker);
+  // どの市場のページにもつながらなかった（時間切れなど）か、ページはあったが銘柄がなかったか
+  error.kind = lastResult ? 'not_found' : 'unreachable';
+  throw error;
 }
 
 // MARKET_DATA に、まだ新しい（数分以内に取れた）株価があれば、その行
