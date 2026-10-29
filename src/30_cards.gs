@@ -337,6 +337,46 @@ function buildLiffLaunchFlexMessage_(liffUrl, view) {
   };
 }
 
+// 押すと入力欄に文字を入れるだけの操作（何も送らない・記録しない。押されたことだけ EVENT_LOG に残す）
+function buildKeyboardPrefillAction_(text) {
+  return {
+    type: 'postback',
+    data: 'action=usage_prefill&command=' + encodeURIComponent(text),
+    inputOption: 'openKeyboard',
+    fillInText: text,
+  };
+}
+
+// 使い方のカードの1行：ことば（押すと入力欄に入る）と説明
+function buildUsageRow_(card) {
+  return {
+    type: 'box',
+    layout: 'vertical',
+    spacing: 'xs',
+    paddingAll: '12px',
+    cornerRadius: '12px',
+    backgroundColor: '#F4F7F6',
+    action: card.quickActionText ? buildKeyboardPrefillAction_(card.quickActionText) : undefined,
+    contents: [
+      {
+        type: 'text',
+        text: card.command + (card.quickActionText ? '  ✏️' : ''),
+        size: 'sm',
+        weight: 'bold',
+        color: BOT_ACCENT_COLOR_,
+        wrap: true,
+      },
+      {
+        type: 'text',
+        text: card.detail,
+        size: 'xs',
+        color: '#666666',
+        wrap: true,
+      },
+    ],
+  };
+}
+
 // 使い方のカード：ことばを押すと入力欄に入る。leadText・altText・bandText・showRuleRow で、ボットが入ったときの案内にも使う
 function buildUsageGuideFlexMessage_(options) {
   const settings = options || {};
@@ -365,44 +405,7 @@ function buildUsageGuideFlexMessage_(options) {
     });
   }
 
-  function buildKeyboardPrefillAction_(text) {
-    return {
-      type: 'postback',
-      data: 'action=usage_prefill&command=' + encodeURIComponent(text),
-      inputOption: 'openKeyboard',
-      fillInText: text,
-    };
-  }
 
-  // 1行：コマンド（押すと入力欄に入る）と説明
-  function buildUsageRow_(card) {
-    return {
-      type: 'box',
-      layout: 'vertical',
-      spacing: 'xs',
-      paddingAll: '12px',
-      cornerRadius: '12px',
-      backgroundColor: '#F4F7F6',
-      action: card.quickActionText ? buildKeyboardPrefillAction_(card.quickActionText) : undefined,
-      contents: [
-        {
-          type: 'text',
-          text: card.command + (card.quickActionText ? '  ✏️' : ''),
-          size: 'sm',
-          weight: 'bold',
-          color: BOT_ACCENT_COLOR_,
-          wrap: true,
-        },
-        {
-          type: 'text',
-          text: card.detail,
-          size: 'xs',
-          color: '#666666',
-          wrap: true,
-        },
-      ],
-    };
-  }
 
   const bodyContents = [];
   if (settings.leadText) {
@@ -719,13 +722,7 @@ function buildMainQuickReply_(groupId, leadingItems) {
   }
   items.push({
     type: 'action',
-    action: {
-      type: 'postback',
-      label: '📌 銘柄を注目する',
-      data: 'action=usage_prefill&command=' + encodeURIComponent('#'),
-      inputOption: 'openKeyboard',
-      fillInText: '#',
-    },
+    action: Object.assign({ label: '📌 銘柄を注目する' }, buildKeyboardPrefillAction_('#')),
   });
   items.push({ type: 'action', action: { type: 'message', label: '❓ 使い方', text: '#使い方' } });
   return { items: items };

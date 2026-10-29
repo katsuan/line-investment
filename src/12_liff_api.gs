@@ -34,54 +34,41 @@ function processLineGroupBotLiffDataRequest_(request) {
     });
   }
 
-  if (view === 'watchlist') {
+  const buildData = buildLiffViewDataBuilder_(view, params);
+  if (!buildData) {
     return createJsonOutput_({
-      ok: true,
-      groupId: groupId,
-      view: view,
-      generatedAt: nowJst_(),
-      data: buildLiffWatchlistPayload_(groupId, {
-        forceRefresh: forceRefresh,
-      }),
-    });
-  }
-
-  if (view === 'performance') {
-    return createJsonOutput_({
-      ok: true,
-      groupId: groupId,
-      view: view,
-      generatedAt: nowJst_(),
-      data: buildLiffPerformancePayload_(groupId, {
-        forceRefresh: forceRefresh,
-      }),
-    });
-  }
-
-  if (view === 'quote') {
-    const ticker = normalizeTickerCode_(params.ticker || '');
-    if (!isValidTickerCode_(ticker)) {
-      return createJsonOutput_({
-        ok: false,
-        error: 'ticker is required for quote view',
-      });
-    }
-
-    return createJsonOutput_({
-      ok: true,
-      groupId: groupId,
-      view: view,
-      generatedAt: nowJst_(),
-      data: buildLiffQuotePayload_(groupId, ticker, {
-        forceRefresh: forceRefresh,
-      }),
+      ok: false,
+      error: view === 'quote' ? 'ticker is required for quote view' : 'unsupported view',
     });
   }
 
   return createJsonOutput_({
-    ok: false,
-    error: 'unsupported view',
+    ok: true,
+    groupId: groupId,
+    view: view,
+    generatedAt: nowJst_(),
+    data: buildData(groupId, { forceRefresh: forceRefresh }),
   });
+}
+
+// 画面の view ごとの中身を作る関数（groupId, options）→ data。使えない view・銘柄コードの形がちがうときは null
+function buildLiffViewDataBuilder_(view, params) {
+  if (view === 'watchlist') {
+    return buildLiffWatchlistPayload_;
+  }
+  if (view === 'performance') {
+    return buildLiffPerformancePayload_;
+  }
+  if (view === 'quote') {
+    const ticker = normalizeTickerCode_((params && params.ticker) || '');
+    if (!isValidTickerCode_(ticker)) {
+      return null;
+    }
+    return function(groupId, options) {
+      return buildLiffQuotePayload_(groupId, ticker, options);
+    };
+  }
+  return null;
 }
 
 // 画面の注目一覧：銘柄ごとの株価・騰落率・時価総額など（LINE のユーザー ID は返さない）

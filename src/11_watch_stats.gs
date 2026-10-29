@@ -92,22 +92,8 @@ function buildWatchPerformanceStats_(groupId, options) {
       return a.displayName.localeCompare(b.displayName);
     });
 
-  const limitedRows = [];
-  let currentRank = 0;
-  let previousRankingKey = null;
-  rows.forEach(function(row, index) {
-    const rankingKey = row.rankingAverageDelta + '|' + row.pickCount;
-    if (rankingKey !== previousRankingKey) {
-      currentRank = index + 1;
-      previousRankingKey = rankingKey;
-    }
-    if (currentRank <= 5) {
-      limitedRows.push(Object.assign({}, row, { rank: currentRank }));
-    }
-  });
-
   return {
-    rows: limitedRows,
+    rows: rankTopRows_(rows, 5),
     totalCount: records.length,
   };
 }
@@ -203,4 +189,22 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     averageDelta: deltaCount > 0 ? (deltaSum / deltaCount) : null,
     records: displayRecords.slice(0, settings.limit || 5),
   };
+}
+
+// 並べた行に順位を付け、上位 maxRank 位までを返す（平均の騰落率と注目した数が同じなら同じ順位）
+function rankTopRows_(sortedRows, maxRank) {
+  const ranked = [];
+  let currentRank = 0;
+  let previousRankingKey = null;
+  sortedRows.forEach(function(row, index) {
+    const rankingKey = row.rankingAverageDelta + '|' + row.pickCount;
+    if (rankingKey !== previousRankingKey) {
+      currentRank = index + 1;
+      previousRankingKey = rankingKey;
+    }
+    if (currentRank <= maxRank) {
+      ranked.push(Object.assign({}, row, { rank: currentRank }));
+    }
+  });
+  return ranked;
 }
