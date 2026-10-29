@@ -774,3 +774,125 @@ test("ルールの確認：グループのルールが新しい版になると�
   agree(gas, MEMBER, "action=agree_rules&ruleVersion=1");
   assert.match(replyTexts(gas), /ルールが新しくなりました/);
 });
+
+// 株価の取得
+test("株価：ページから名前・株価・前日比・時価総額・PER・出来高を読む（script の中の数は読まない）", () => {
+  const g = makeWith(() => response(200, QUOTE_PAGE("7203:TYO", "トヨタ自動車", "¥3,100", "+1.20%")));
+  const q = g.call("getMarketQuoteByTicker_", "7203", { forceRefresh: true });
+  assert.equal(q.name, "トヨタ自動車");
+  assert.equal(q.price, "3100");
+  assert.equal(q.changePercent, "+1.20");
+  assert.equal(q.marketCap, "48.5兆");
+  assert.equal(q.per, "9.80");
+  assert.equal(q.volume, "12345600");
+  assert.deepEqual(financeCalls(g), ["7203:TYO"]);
+});
+
+test("株価：ためす市場の順（日本株は東証だけ・決まりのある米国株はその市場から・ほかは市場なし→米国の市場）", () => {
+  const g = makeWith(() => response(200, ""));
+  assert.deepEqual(g.call("buildMarketTickerCandidates_", "7203"), ["7203:TYO"]);
+  assert.deepEqual(g.call("buildMarketTickerCandidates_", "212a"), ["212A:TYO"]);
+  assert.deepEqual(g.call("buildMarketTickerCandidates_", "AAPL"), ["AAPL:NASDAQ", "AAPL:NYSE", "AAPL:AMEX", "AAPL"]);
+  assert.deepEqual(g.call("buildMarketTickerCandidates_", "TSLA"), ["TSLA", "TSLA:NASDAQ", "TSLA:NYSE", "TSLA:AMEX"]);
+  assert.deepEqual(g.call("buildMarketTickerCandidates_", "TSLA:NASDAQ"), ["TSLA:NASDAQ"]);
+});
+
+test("株価：数分以内に取ったものは、取りなおさない。古ければ取りなおす", () => {
+  const g = makeWith(() => response(200, QUOTE_PAGE("7203:TYO", "トヨタ自動車", "¥3,100", "+1.20%")));
+  g.call("getMarketQuoteByTicker_", "7203", { forceRefresh: true });
+  fresh(g);
+  g.call("getMarketQuoteByTicker_", "7203", {});
+  assert.equal(financeCalls(g).length, 1, "覚えたものを使う");
+  // 1時間前に取ったことにする
+  const rows = g.rows("MARKET_DATA");
+  rows[1][11] = g.eval("Utilities.formatDate(new Date(Date.now() - 3600e3), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss')");
+  g.seed("MARKET_DATA", rows);
+  fresh(g);
+  g.call("getMarketQuoteByTicker_", "7203", {});
+  assert.equal(financeCalls(g).length, 2, "古いので取りなおす");
+});
+
+test("株価：どの市場にも銘柄がないときは「見つかりませんでした」と返し、注目に入れない", () => {
+  const g = makeWith(() => response(404, "not found"));
+  text(g, "#XYZQ");
+  assert.match(replyTexts(g), /見つかりませんでした/);
+  assert.equal(g.rows("WATCHLIST").length, 1);
+  assert.equal(financeCalls(g).length, 4, "4つの市場をためした");
+  assert.ok(g.rows("MARKET_DATA").slice(1).every((r) => r[12] !== "parsed"), "取れていないものを取れたことにしない");
+});
+
+test("株価：取れていないもの（empty_parse）は、覚えたものとして使わない", () => {
+  let page = "<div>nothing</div>";
+  const g = makeWith(() => response(200, page));
+  const empty = g.call("getMarketQuoteByTicker_", "7203", {});
+  assert.equal(empty.name + empty.price, "", "名前も株価もない（注目には入れない）");
+  assert.equal(g.rows("MARKET_DATA")[1][12], "empty_parse");
+  page = QUOTE_PAGE("7203:TYO", "トヨタ自動車", "¥3,100", "+1.20%");
+  fresh(g);
+  assert.equal(g.call("getMarketQuoteByTicker_", "7203", {}).price, "3100", "取れなかった分は覚えておらず、取りなおす");
+});
+
+// 順位づけ
+test("順位：平均の騰落率の高い順。同じ成績は同じ順位。株価がない人は後ろ。上位5位まで", () => {
+  const gas = make();
+  const rows = [
+    { userId: "a", displayName: "あ", pickCount: 2, rankingAverageDelta: 10 },
+    { userId: "b", displayName: "い", pickCount: 2, rankingAverageDelta: 10 },
+    { userId: "c", displayName: "う", pickCount: 1, rankingAverageDelta: 10 },
+    { userId: "d", displayName: "え", pickCount: 3, rankingAverageDelta: 5 },
+    { userId: "e", displayName: "お", pickCount: 1, rankingAverageDelta: 1 },
+    { userId: "f", displayName: "か", pickCount: 1, rankingAverageDelta: -1 },
+    { userId: "g", displayName: "き", pickCount: 9, rankingAverageDelta: Number.NEGATIVE_INFINITY },
+  ];
+  const ranked = gas.call("rankTopRows_", rows, 5);
+  assert.deepEqual(ranked.map((r) => r.displayName + r.rank), ["あ1", "い1", "う3", "え4", "お5"]);
+});
+
+test("順位：実績の画面で、株価の取れていない銘柄は平均に入れず、ID は返さない", () => {
+  const gas = make({ ALLOWED_USER_IDS: [MEMBER, NEWCOMER].join(",") });
+  const hdr = gas.rows("WATCHLIST")[0];
+  gas.seed("WATCHLIST", [hdr,
+    WATCH_ROW("6758", "2026-10-01 09:00:00", MEMBER, true),
+    WATCH_ROW("7203", "2026-10-02 09:00:00", NEWCOMER, true, "新人"),
+    WATCH_ROW("9984", "2026-10-03 09:00:00", NEWCOMER, true, "新人")]);
+  gas.seed("MARKET_DATA", [gas.rows("MARKET_DATA")[0],
+    MARKET_ROW("6758", "3300", "2026-10-23 15:00:00"),
+    MARKET_ROW("7203", "2700", "2026-10-23 15:00:00"),
+    MARKET_ROW("9984", "", "2026-10-23 15:00:00")]);
+  const perf = liff(gas, { idToken: "tok-member", view: "performance" });
+  assert.deepEqual(perf.data.ranking.map((r) => [r.rank, r.pickCount, Math.round(r.averageDelta)]), [[1, 1, 10], [2, 2, -10]]);
+  assert.equal(perf.data.topSpotlight.displayName, "メンバー");
+  assert.ok(perf.data.randomSpotlight, "1位でない人を紹介する");
+  assert.notEqual(perf.data.randomSpotlight.displayName, "メンバー");
+  assert.doesNotMatch(JSON.stringify(perf), /U[0-9a-f]{32}/);
+});
+
+// 画面：アクセストークン
+test("画面：ID トークンがなくても、アクセストークンを LINE に確かめて本人を決める", () => {
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER },
+    fetch: (url, opt) => {
+      const m = url.match(/oauth2\/v2\.1\/verify\?access_token=([^&]+)/);
+      if (m) {
+        const tok = decodeURIComponent(m[1]);
+        if (tok === "at-member") return response(200, { client_id: CHANNEL, expires_in: 3600 });
+        if (tok === "at-other-channel") return response(200, { client_id: "999", expires_in: 3600 });
+        return response(400, { error: "invalid_request" });
+      }
+      if (/v2\/profile$/.test(url)) return response(200, { userId: MEMBER, displayName: "メンバー" });
+      return lineFetch(url, opt);
+    },
+  });
+  setupSheets(g);
+  assert.equal(liff(g, { accessToken: "at-member" }).ok, true);
+  assert.equal(liff(g, { accessToken: "at-other-channel" }).error, "login required", "ほかのチャネルの印は使わない");
+  assert.equal(liff(g, { accessToken: "forged" }).error, "login required");
+});
+
+test("株価を覚える分数：設定がないときは決まりの5分（0分にしない）", () => {
+  assert.equal(make().call("getMarketDataCacheMinutes_"), 5);
+  assert.equal(make({ MARKET_DATA_CACHE_MINUTES: "0" }).call("getMarketDataCacheMinutes_"), 0);
+  assert.equal(make({ MARKET_DATA_CACHE_MINUTES: "15" }).call("getMarketDataCacheMinutes_"), 15);
+  assert.equal(make({ MARKET_DATA_CACHE_MINUTES: "abc" }).call("getMarketDataCacheMinutes_"), 5);
+});

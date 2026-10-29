@@ -51,9 +51,10 @@ function getStockExchangeSuffix_() {
 
 // 株価を覚えておく分数（MARKET_DATA_CACHE_MINUTES、なければ 00_run の決まりの値）
 function getMarketDataCacheMinutes_() {
-  const raw = getScriptProperty_('MARKET_DATA_CACHE_MINUTES');
+  const raw = String(getScriptProperty_('MARKET_DATA_CACHE_MINUTES') || '').trim();
   const minutes = Number(raw);
-  return Number.isFinite(minutes) && minutes >= 0 ? minutes : DEFAULT_MARKET_DATA_CACHE_MINUTES_;
+  // 入っていないとき（空）は決まりの分数。Number('') は 0 なので、空を先に見る
+  return raw !== '' && Number.isFinite(minutes) && minutes >= 0 ? minutes : DEFAULT_MARKET_DATA_CACHE_MINUTES_;
 }
 
 // 銘柄ごとの市場の決まり（00_run の DEFAULT_TICKER_MARKET_OVERRIDES_ に、TICKER_MARKET_OVERRIDES「AAPL:NASDAQ,…」を重ねる）
