@@ -86,8 +86,6 @@ function make(extraProps = {}) {
 
 // 本物の GAS は、呼び出しのたびに新しく始まる。偽物では、1回の呼び出しの中だけの覚えを消してから呼ぶ
 function fresh(gas) {
-  // 偽物にない Utilities.formatString（%s と %% だけ使っている）
-  gas.eval("if (!Utilities.formatString) Utilities.formatString = function (f) { var a = Array.prototype.slice.call(arguments, 1); return String(f).replace(/%%|%s/g, function (m) { return m === '%%' ? '%' : String(a.shift()); }); };");
   gas.eval("clearTableDataMemo_(); SPREADSHEET_MEMO_ = null; SCRIPT_PROPERTIES_MEMO_ = null; EVENT_LOG_HEADERS_MEMO_ = null;" +
     "Object.keys(MEMBER_PROFILE_MEMO_).forEach(function (k) { delete MEMBER_PROFILE_MEMO_[k]; });");
   return gas;
@@ -662,4 +660,14 @@ test("#グループ許可・入りなおしで、グループのルールの版�
   text(gas, "#グループ許可", ADMIN);
   event(gas, { type: "join", replyToken: "j", source: { type: "group", groupId: GROUP } });
   assert.equal(Number(gas.rows("GROUPS")[1][3]), 2);
+});
+
+test("注目のカードの前日比は、上がったときも + を付ける", () => {
+  const gas = make();
+  assert.equal(gas.call("formatPercent_", "+1.2"), "+1.20%");
+  assert.equal(gas.call("formatPercent_", "-0.5"), "-0.50%");
+  assert.equal(gas.call("formatPercent_", "0"), "0.00%");
+  assert.equal(gas.call("formatPercent_", ""), "-");
+  text(gas, "#7203");
+  assert.match(JSON.stringify(gas.lastMessages()), /\+1\.20%/);
 });

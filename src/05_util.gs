@@ -246,7 +246,7 @@ function formatPrice_(value) {
   return formatDecimalWithCommas_(number, 2);
 }
 
-// % の数を「1.20%」の文字にする。空なら「-」
+// 前日比などの % の数を「+1.20%」「-0.50%」の文字にする（上がったときも + を付ける）。空なら「-」
 function formatPercent_(value) {
   if (value === '' || value === null || typeof value === 'undefined') {
     return '-';
@@ -255,7 +255,7 @@ function formatPercent_(value) {
   if (Number.isNaN(number)) {
     return String(value);
   }
-  return Utilities.formatString('%s%%', number.toFixed(2));
+  return (number > 0 ? '+' : '') + number.toFixed(2) + '%';
 }
 
 // 数の文字を数に。空・null は NaN（0 として計算しない）
