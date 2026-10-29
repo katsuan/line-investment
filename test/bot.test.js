@@ -671,3 +671,106 @@ test("注目のカードの前日比は、上がったときも + を付ける",
   text(gas, "#7203");
   assert.match(JSON.stringify(gas.lastMessages()), /\+1\.20%/);
 });
+
+// ---- 2周目：テストの穴を埋める ----
+
+// 偽物の LINE（ほかは lineFetch）に、株価のページの返し方を足して作る
+function makeWith(financeFetch, extraProps = {}) {
+  const g = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ADMIN_USER_IDS: ADMIN, ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER, LIFF_APP_BASE_URL: "https://example.com/liff/", ...extraProps },
+    fetch: (url, opt) => (/google\.com\/finance/.test(url) ? financeFetch(url, opt) : lineFetch(url, opt)),
+  });
+  setupSheets(g);
+  g.reset();
+  return g;
+}
+const financeCalls = (g) => g.fetches.filter((f) => /google\.com\/finance/.test(f.url)).map((f) => decodeURIComponent(f.url.match(/quote\/([^?]+)/)[1]));
+const QUOTE_PAGE = (code, name, price, pct) =>
+  `<html><script>var x="<div>99999</div>"</script><div>${code}</div><div>search</div><div>${name}</div><div>${price}</div><div>${pct}</div>` +
+  "<div>時価総額</div><div>48.5兆</div><div>株価収益率</div><div>9.80</div><div>出来高</div><div>12,345,600</div></html>";
+
+// Webhook の振りわけ
+test("Webhook：中身が JSON でなくても止まらず OK を返し、記録に残す", () => {
+  const gas = make();
+  const res = fresh(gas).call("runLineGroupBotPost", { parameter: { key: "hook-secret" }, postData: { contents: "{oops" } });
+  assert.equal(typeof res.getContent === "function" ? res.getContent() : String(res), "OK");
+  assert.ok(gas.rows("EVENT_LOG").some((r) => r[1] === "webhook_parse" && r[5] === "error"));
+});
+
+test("Webhook：1つの知らせが失敗しても、ほかの知らせには返事をする", () => {
+  const gas = make();
+  const res = fresh(gas).call("runLineGroupBotPost", {
+    parameter: { key: "hook-secret" },
+    postData: { contents: JSON.stringify({ events: [
+      { type: "message", replyToken: "bad", source: { type: "group", groupId: GROUP, userId: MEMBER }, message: null },
+      { type: "message", replyToken: "good", source: { type: "group", groupId: GROUP, userId: MEMBER }, message: { type: "text", text: "#ルール" } },
+    ] }) },
+  });
+  assert.equal(typeof res.getContent === "function" ? res.getContent() : String(res), "OK");
+  assert.equal(gas.replies().length, 1);
+});
+
+test("Webhook：写真・スタンプ・ふつうの会話・複数人トーク・知らない種類には返事をしない", () => {
+  const gas = make();
+  event(gas, { type: "message", replyToken: "a", source: { type: "group", groupId: GROUP, userId: MEMBER }, message: { type: "image", id: "1" } });
+  event(gas, { type: "message", replyToken: "b", source: { type: "group", groupId: GROUP, userId: MEMBER }, message: { type: "sticker", id: "2" } });
+  text(gas, "こんにちは");
+  event(gas, { type: "message", replyToken: "c", source: { type: "room", roomId: "R1", userId: MEMBER }, message: { type: "text", text: "#ルール" } });
+  event(gas, { type: "leave", source: { type: "group", groupId: GROUP } });
+  assert.equal(gas.replies().length, 0);
+  assert.ok(gas.rows("EVENT_LOG").some((r) => r[5] === "ignored" && /unsupported event type: leave/.test(r[6])), "知らない種類は記録だけ");
+});
+
+// グループの許可
+test("グループの許可：許可されていないグループでは、入っても黙り、ことばには「まだ使えません」", () => {
+  const gas = make({ ALLOWED_GROUP_IDS: OTHER_GROUP });
+  event(gas, { type: "join", replyToken: "j", source: { type: "group", groupId: GROUP } });
+  event(gas, { type: "memberJoined", replyToken: "m", source: { type: "group", groupId: GROUP }, joined: { members: [{ type: "user", userId: NEWCOMER }] } });
+  assert.equal(gas.replies().length, 0);
+  text(gas, "#注目一覧", MEMBER);
+  assert.match(replyTexts(gas), /まだ使えません/);
+});
+
+test("グループの許可：管理者の #グループ許可 で、そのグループが使えるようになる", () => {
+  const gas = make({ ALLOWED_GROUP_IDS: OTHER_GROUP });
+  text(gas, "#グループ許可", ADMIN);
+  assert.match(replyTexts(gas), /使えるようにしました/);
+  assert.deepEqual(gas.call("getAllowedGroupIds_"), [OTHER_GROUP, GROUP]);
+  assert.equal(gas.rows("GROUPS")[1][0], GROUP);
+  assert.equal(Number(gas.rows("GROUPS")[1][3]), 1, "はじめてなので版は 1");
+  gas.reset();
+  text(gas, "#注目一覧", MEMBER);
+  assert.doesNotMatch(replyTexts(gas), /まだ使えません/);
+});
+
+// ルールの確認
+test("ルールの確認：はじめて押すと、版と時刻を記録し、使ってよい人に足し、使い方のカードを返す", () => {
+  const gas = make();
+  agree(gas, NEWCOMER, `action=agree_rules&ruleVersion=1&targetUserIds=${NEWCOMER}`);
+  const row = gas.rows("MEMBERS").find((r) => r[1] === NEWCOMER);
+  assert.ok(row, "MEMBERS に書いた");
+  assert.equal(Number(row[5]), 1);
+  assert.match(String(row[4]), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  assert.ok(gas.call("getAllowedUserIds_").includes(NEWCOMER));
+  assert.ok(gas.call("getAllowedUserIds_").includes(MEMBER), "ほかの人を消さない");
+  assert.match(gas.lastMessages()[0].altText, /使い方/);
+  // 確認したあとは使える
+  gas.reset();
+  assert.equal(liff(gas, { idToken: "tok-newcomer" }).ok, true);
+});
+
+test("ルールの確認：グループのルールが新しい版になると、前の版の人は #未確認 に出る", () => {
+  const gas = make();
+  const rules = gas.rows("RULES");
+  gas.seed("RULES", [rules[0], rules[1], [2, "新しいルール", "目的", "禁止", "おことわり", true, "2026-10-20 09:00:00"]]);
+  gas.seed("GROUPS", [gas.rows("GROUPS")[0], [GROUP, "投資の会", true, 2, "", ""]]);
+  text(gas, "#未確認");
+  const m = lastMessage(gas);
+  assert.match(m.altText, /1人/);
+  assert.match(JSON.stringify(m.contents), /Version 2/);
+  // 前の版のボタンは、新しいルールを出しなおす
+  gas.reset();
+  agree(gas, MEMBER, "action=agree_rules&ruleVersion=1");
+  assert.match(replyTexts(gas), /ルールが新しくなりました/);
+});
