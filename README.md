@@ -1,6 +1,24 @@
 # LINE投資グループBot
 
-Google Apps Script と LINE Messaging API で動かす、LINE投資グループ向けの初期Bot実装です。
+Google Apps Script と LINE Messaging API で動かす、LINE の投資グループ向けのボットです。
+グループで気になる銘柄を `#7203` のように送ると注目に入り、注目一覧・注目したあとの実績を画面（LIFF）で見られます。新しく入った人には、グループのルールを案内して確認してもらいます。
+
+## ことば（グループで送る）
+
+| ことば | すること | だれが |
+|---|---|---|
+| `#7203`・`#AAPL` | 株価を取って注目に入れ、注目のカードを返す（もう注目中なら、そのときからの騰落率） | ルールを確認した人 |
+| `#解除 7203` | 自分が入れた注目を外す（「↩ 7203 を戻す」ですぐ入れなおせる） | 入れた人・管理者 |
+| `#解除` | このグループの注目を全部外す | 管理者 |
+| `#注目一覧`・`#注目実績` | 画面を開くカード | ルールを確認した人 |
+| `#ルール` | いまのルール（まだ確認していない人には、確認のボタン付き） | だれでも |
+| `#未確認` | ルールをまだ確認していない人の一覧 | ルールを確認した人 |
+| `#使い方`・`#ヘルプ` | 使い方のカード（ことばを押すと入力欄に入る） | ルールを確認した人 |
+| `#Bot設定` | ボットの設定のようす（ほかのグループの数は管理者にだけ） | ルールを確認した人 |
+| `#グループ許可` | このグループを使ってよい一覧に足す | 管理者 |
+| `#LIFF一覧` | 画面を開くカード（使い方には載せていない、確かめる用） | ルールを確認した人 |
+
+全角の `＃７２０３` も受けつけます。`#` で始まらない会話には返事をしません。
 
 ## ファイル構成
 
@@ -46,16 +64,20 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 - `WEBHOOK_KEY`: Webhook の合言葉。長くて推測できない文字にし、Webhook の URL の末尾に `?key=<同じ値>` を付ける
 - `ADMIN_USER_IDS`: 管理者の LINE ユーザー ID（カンマ区切り）。`#グループ許可`・`#解除`（全部）・ほかの人の注目を外す、ができる
 - `ALLOWED_GROUP_IDS`: 使ってよいグループ（カンマ区切り）。管理者がグループで `#グループ許可` を送ると足される
+- `ALLOWED_USER_IDS`: 使ってよい人（カンマ区切り）。ルールの「✅ ルールを確認しました」を押した人を、ボットが足す（手で入れなくてよい）
 - `LIFF_CHANNEL_ID`: 任意。画面（LIFF）のチャネル ID。既定は `config.js` の LIFF ID の「-」より前
 - `STOCK_EXCHANGE_SUFFIX`: 任意。既定値は `TYO`
 - `LIFF_APP_BASE_URL`: 任意。`#注目一覧`・`#注目実績`・カードのボタンで開く画面の URL
-- `MARKET_DATA_CACHE_MINUTES`: 任意。相場情報キャッシュ分数。既定値は `5`
+- `MARKET_DATA_CACHE_MINUTES`: 任意。株価を覚えておく分数（この間は Google Finance に取りに行かない）。既定値は `5`
+- `LINE_SENDER_NAME`: 任意。返事の送り主の名前。既定は `00_run.gs` の `DEFAULT_LINE_SENDER_NAME_`
+- `TICKER_MARKET_OVERRIDES`: 任意。銘柄の市場の決まり（例 `AAPL:NASDAQ,MCD:NYSE`）。`00_run.gs` の `DEFAULT_TICKER_MARKET_OVERRIDES_` に重ねる
+- `LAST_LINE_ERRORS`: ボットが書く。LINE に断られた最後の5件（入れなくてよい）
 
 ## 初回セットアップ
 
 1. `.clasp.json.example` を `.clasp.json` に複製して `scriptId` を入れ、`clasp push` を実行する（`.clasp.json` は git に入れない）
 2. Apps Script エディタで `00_run.gs` を開き、`setupInvestmentGroupBot` を1回実行する
-3. `GROUPS`, `MEMBERS`, `RULES`, `EVENT_LOG` シートが作成されたことを確認する
+3. `GROUPS`・`MEMBERS`・`RULES`・`EVENT_LOG`・`WATCHLIST`・`MARKET_DATA`（株価を覚える。隠してある）のシートができたことを確かめる
 4. `RULES` に Version 1 が投入されていることを確認する
 
 ## 使う前の確かめ
@@ -72,6 +94,21 @@ Script Properties・シートの見出し・LINE の鍵と Webhook（合言葉�
 node --test test/
 ```
 
+コードの決まり（q-oqrn の docs/security.md など）の点検：
+
+```bash
+node ../q-oqrn/tools/qtest/check-code.mjs .
+```
+
+## 本番に出す（GAS）
+
+この GAS の公開は「いつも最新のコードで動く」形（`@HEAD`）なので、**`clasp push` がそのまま本番になります**（`clasp deploy` は要りません）。
+
+1. `node --test test/` と `check-code.mjs` が通ることを確かめる
+2. 本番のいまの中身を、別のフォルダに `clasp pull` して、手元と比べる（本番だけで書きかえた所がないか）
+3. `clasp push`
+4. GAS エディタで `checkAll` を実行して、❌ がないかを見る
+
 ## Webアプリ公開
 
 1. Apps Script で `デプロイ > 新しいデプロイ`
@@ -87,16 +124,12 @@ node --test test/
 
 これにより、Web アプリの再デプロイ導線を追わずに、親側の入口から同じ本体処理へ渡せます。
 
-## LIFF デバッグ導線
+## 画面（LIFF）
 
-現行の `#注目一覧` / `#注目実績` は継続運用しつつ、LIFF は段階導入します。
-
-- デバッグ用隠しコマンド: `#LIFF一覧`
-- 返却内容: GitHub Pages 上の LIFF 起動用 Flex
-- LIFF のタブ順: `しらべる / 注目一覧 / 実績`
-- LIFF からのデータ取得: `doGet?action=liff_data`
-
-`#LIFF一覧` は通常の使い方ガイドには載せず、デバッグ期間中のみ利用します。
+- タブの順：`しらべる / 注目一覧 / 実績`
+- 中身は GAS の `doGet?action=liff_data` に問い合わせる（下の「LIFF API」）
+- 前に開いたときの中身を端末に残し、開いたらすぐ出してから新しくする
+- `#LIFF一覧` は使い方には載せていない、確かめる用のことば（`#注目一覧` と同じカード）
 
 ### GitHub Pages デプロイ
 
@@ -164,15 +197,14 @@ ID トークンを使うには、LIFF アプリの Scope で `openid` をオン�
 
 - Bot をグループへ追加して `join` が記録されること
 - 新規メンバー追加で歓迎 Flex が返信されること
-- 下のクイックリプライの `✅ ルールを確認しました` 押下で `MEMBERS.agreedAt` と `agreedRuleVersion` が更新されること
+- カードかクイックリプライの `✅ ルールを確認しました` を押すと、`MEMBERS.agreedAt` と `agreedRuleVersion` が記録されること
 - `#ルール`, `#未確認`, `#Bot設定` が動作すること
 - `#LIFF一覧` で LIFF 起動用 Flex が返ること
 - `docs/liff/` の画面で `watchlist` / `performance` が個別取得できること
 
 ## 注意点
 
-- 初期実装は `group` のみ対応です
-- 通常会話には反応しません
+- グループのトークで使います（1対1 は、管理者の `#テスト` だけ）
 - LINE API エラーやイベント例外は `EVENT_LOG` に保存します（LINE のユーザー ID は、そのままではなく短いハッシュで残します）
 - グループの外（1対1のトークなど）には返事をしません
 - ふつうの会話（`#` で始まらないもの）には返事をせず、`EVENT_LOG` にも書きません
