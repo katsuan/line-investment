@@ -13,6 +13,8 @@
     apiBaseUrl: (isLocalHost && query.get('apiBaseUrl')) || config.apiBaseUrl || '',
     liffId: (isLocalHost && query.get('liffId')) || config.liffId || '',
     initialized: false,
+    // LINE とつなぐ準備（initializeLiff）が終わったか。終わるまでは、前の中身か読みこみ中の箱を出す
+    initDone: false,
     // その場で送れるか（LINE アプリの中で、トークから開いたとき）
     canSend: false,
     // 手元で確かめるとき（?debug=1 か config.local.js の debugGroupId）だけ、group・user の目印を出す
@@ -313,93 +315,70 @@
     const bValue = getWatchlistCellValue(b, column.key);
 
     if (column.type === 'number') {
-      const aNumber = parseMaybeNumber(aValue);
-      const bNumber = parseMaybeNumber(bValue);
-      if (aNumber === null && bNumber === null) {
-        return 0;
-      }
-      if (aNumber === null) {
-        return 1;
-      }
-      if (bNumber === null) {
-        return -1;
-      }
-      return aNumber - bNumber;
+      return compareNullableNumbers(parseMaybeNumber(aValue), parseMaybeNumber(bValue));
     }
-
     if (column.type === 'date') {
-      const aDate = parseDateValue(aValue);
-      const bDate = parseDateValue(bValue);
-      if (aDate === null && bDate === null) {
-        return 0;
-      }
-      if (aDate === null) {
-        return 1;
-      }
-      if (bDate === null) {
-        return -1;
-      }
-      return aDate - bDate;
+      return compareNullableNumbers(parseDateValue(aValue), parseDateValue(bValue));
     }
-
     return String(aValue || '').localeCompare(String(bValue || ''), 'ja');
   }
 
-  // 注目一覧を、しぼりこみの条件で残す
+  // 数（日時も数）を小さい順に比べる。null（値がない）は後ろへ
+  function compareNullableNumbers(a, b) {
+    if (a === null && b === null) {
+      return 0;
+    }
+    if (a === null) {
+      return 1;
+    }
+    if (b === null) {
+      return -1;
+    }
+    return a - b;
+  }
+
+  // 注目一覧を、しぼりこみの条件で残す（文字は含む・注目者はえらんだ人・数は以上と以下）
   function getWatchlistFilteredItems(items) {
+    const filters = state.watchlistFilters;
+    const numberKeys = watchlistColumns.filter(function(column) {
+      return column.type === 'number';
+    }).map(function(column) {
+      return column.key;
+    });
     return items.filter(function(item) {
-      const filters = state.watchlistFilters;
-
-      if (filters.name) {
-        const name = String(getWatchlistCellValue(item, 'name') || '').toUpperCase();
-        if (name.indexOf(filters.name.toUpperCase()) === -1) {
-          return false;
-        }
+      if (filters.name && !includesIgnoringCase(getWatchlistCellValue(item, 'name'), filters.name)) {
+        return false;
       }
-
-      if (filters.marketTicker) {
-        const marketTicker = String(item.marketTicker || '').toUpperCase();
-        if (marketTicker.indexOf(filters.marketTicker.toUpperCase()) === -1) {
-          return false;
-        }
+      if (filters.marketTicker && !includesIgnoringCase(item.marketTicker, filters.marketTicker)) {
+        return false;
       }
-
-      if (filters.addedByDisplayNames && filters.addedByDisplayNames.length) {
-        if (filters.addedByDisplayNames.indexOf(String(item.addedByDisplayName || '')) === -1) {
-          return false;
-        }
+      if (filters.addedByDisplayNames && filters.addedByDisplayNames.length &&
+        filters.addedByDisplayNames.indexOf(String(item.addedByDisplayName || '')) === -1) {
+        return false;
       }
-
-      if (filters.addedAt) {
-        const addedAt = String(item.addedAt || '');
-        if (addedAt.indexOf(filters.addedAt) === -1) {
-          return false;
-        }
+      if (filters.addedAt && String(item.addedAt || '').indexOf(filters.addedAt) === -1) {
+        return false;
       }
-
-      const numericRanges = [
-        ['currentPrice', 'currentPriceMin', 'currentPriceMax'],
-        ['addedPrice', 'addedPriceMin', 'addedPriceMax'],
-        ['performanceDelta', 'performanceDeltaMin', 'performanceDeltaMax'],
-        ['marketCap', 'marketCapMin', 'marketCapMax'],
-        ['per', 'perMin', 'perMax'],
-        ['volume', 'volumeMin', 'volumeMax']
-      ];
-
-      return numericRanges.every(function(range) {
-        const current = parseMaybeNumber(item[range[0]]);
-        const min = parseMaybeNumber(filters[range[1]]);
-        const max = parseMaybeNumber(filters[range[2]]);
-
-        if (min !== null && (current === null || current < min)) {
-          return false;
-        }
-        if (max !== null && (current === null || current > max)) {
-          return false;
-        }
-        return true;
+      return numberKeys.every(function(key) {
+        return isWithinRange(parseMaybeNumber(item[key]), parseMaybeNumber(filters[key + 'Min']), parseMaybeNumber(filters[key + 'Max']));
       });
     });
+  }
+
+  // 大文字・小文字を見ないで、text に part が入っているか
+  function includesIgnoringCase(text, part) {
+    return String(text || '').toUpperCase().indexOf(String(part).toUpperCase()) !== -1;
+  }
+
+  // value が min 以上・max 以下か（min・max が null ならその側は見ない。値がないものは、条件があれば外す）
+  function isWithinRange(value, min, max) {
+    if (min !== null && (value === null || value < min)) {
+      return false;
+    }
+    if (max !== null && (value === null || value > max)) {
+      return false;
+    }
+    return true;
   }
 
   // 注目一覧を、えらんだ列と向きで並べる
@@ -469,7 +448,6 @@
   function renderWatchlistTable(items) {
     const filteredItems = getWatchlistFilteredItems(items);
     const sortedItems = getWatchlistSortedItems(filteredItems);
-    const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
     const latestCachedAt = state.watchlistPayload && state.watchlistPayload.latestCachedAt
       ? '株価は ' + formatDateTimeDisplay(state.watchlistPayload.latestCachedAt) + ' ごろ'
       : '';
@@ -488,15 +466,7 @@
       '</colgroup>',
       '<thead>',
       '<tr>',
-      watchlistColumns.map(function(column) {
-        const isActive = state.watchlistSort.key === column.key;
-        const ariaSort = isActive ? (state.watchlistSort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
-        return '<th class="watchlist-head-cell" data-column-key="' + column.key + '" aria-sort="' + ariaSort + '">' +
-          '<button class="sort-button' + (isActive ? ' is-active' : '') + '" data-sort-key="' + column.key + '" type="button">' +
-          escapeHtml(column.label) + (isActive ? ' ' + sortMarker : '') + '</button>' +
-          '<span class="column-resizer" data-resize-key="' + column.key + '" aria-hidden="true"></span>' +
-          '</th>';
-      }).join(''),
+      watchlistColumns.map(renderWatchlistHeadCell).join(''),
       '</tr>',
       '<tr class="filter-row">',
       watchlistColumns.map(function(column) {
@@ -509,25 +479,40 @@
         '<tr>',
         '<td class="table-empty" colspan="' + escapeHtml(String(watchlistColumns.length)) + '">この条件の銘柄はありません。</td>',
         '</tr>'
-      ].join('') : sortedItems.map(function(item) {
-        return [
-          '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '" tabindex="0">',
-          '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noopener noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
-          '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
-          '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
-          '<td class="mono">' + escapeHtml(item.addedPrice || '-') + '</td>',
-          '<td class="mono delta ' + getDeltaClass(item.performanceDelta || '') + '">' + escapeHtml(item.performanceDelta || '-') + '</td>',
-          '<td class="mono">' + escapeHtml(item.marketCap || '-') + '</td>',
-          '<td class="mono">' + escapeHtml(item.per || '-') + '</td>',
-          '<td class="mono">' + escapeHtml(String(item.volume || '-')) + '</td>',
-          '<td>' + escapeHtml(item.addedByDisplayName || '-') + '</td>',
-          '<td class="mono">' + escapeHtml(item.addedAt || '-') + '</td>',
-          '</tr>'
-        ].join('');
-      }).join('')),
+      ].join('') : sortedItems.map(renderWatchlistRow).join('')),
       '</tbody>',
       '</table>',
       '</div>'
+    ].join('');
+  }
+
+  // 注目一覧の見出しの1つ（押すと並べかえ・右の端で幅を変える）
+  function renderWatchlistHeadCell(column) {
+    const isActive = state.watchlistSort.key === column.key;
+    const ariaSort = isActive ? (state.watchlistSort.direction === 'asc' ? 'ascending' : 'descending') : 'none';
+    const sortMarker = state.watchlistSort.direction === 'asc' ? '↑' : '↓';
+    return '<th class="watchlist-head-cell" data-column-key="' + column.key + '" aria-sort="' + ariaSort + '">' +
+      '<button class="sort-button' + (isActive ? ' is-active' : '') + '" data-sort-key="' + column.key + '" type="button">' +
+      escapeHtml(column.label) + (isActive ? ' ' + sortMarker : '') + '</button>' +
+      '<span class="column-resizer" data-resize-key="' + column.key + '" aria-hidden="true"></span>' +
+      '</th>';
+  }
+
+  // 注目一覧の1行（押すと銘柄のシートが開く）
+  function renderWatchlistRow(item) {
+    return [
+      '<tr data-ticker="' + escapeHtml(item.ticker || '') + '" data-name="' + escapeHtml(item.name || '') + '" tabindex="0">',
+      '<td><a class="pill-link" href="' + escapeHtml(item.kabutanUrl) + '" target="_blank" rel="noopener noreferrer">🔍 ' + escapeHtml(getTickerCode(item.marketTicker || item.ticker)) + '</a></td>',
+      '<td><div class="company-cell"><strong>' + escapeHtml((item.marketFlag ? item.marketFlag + ' ' : '') + item.name) + '</strong></div></td>',
+      '<td class="mono">' + escapeHtml(item.currentPrice || '-') + '</td>',
+      '<td class="mono">' + escapeHtml(item.addedPrice || '-') + '</td>',
+      '<td class="mono delta ' + getDeltaClass(item.performanceDelta || '') + '">' + escapeHtml(item.performanceDelta || '-') + '</td>',
+      '<td class="mono">' + escapeHtml(item.marketCap || '-') + '</td>',
+      '<td class="mono">' + escapeHtml(item.per || '-') + '</td>',
+      '<td class="mono">' + escapeHtml(String(item.volume || '-')) + '</td>',
+      '<td>' + escapeHtml(item.addedByDisplayName || '-') + '</td>',
+      '<td class="mono">' + escapeHtml(item.addedAt || '-') + '</td>',
+      '</tr>'
     ].join('');
   }
 
@@ -1210,25 +1195,8 @@
       return;
     }
 
-    if (!canFetch() && !state.initDone) {
-      // LINE の準備がすむまでは、前の中身か読みこみ中の箱
-      if (cachedPayload) {
-        setLoadingText(loadingEl, '前に開いたときの内容です。新しくしています…');
-      } else {
-        renderSkeleton(contentEl);
-      }
-      return;
-    }
-
     if (!canFetch()) {
-      if (cachedPayload) {
-        setLoadingText(loadingEl, '前に開いたときの内容です（' + formatSavedTime(state.cacheFetchedAt[view]) + '）。');
-        return;
-      }
-      setLoadingText(loadingEl, '');
-      renderEmptyNote(contentEl, '💬', state.groupId
-        ? '見るには、LINE で開いてね。'
-        : 'グループのトークから開いてね。\nトークで「#注目一覧」と送ると、開くボタンが届きます。');
+      showViewWithoutFetching(view, loadingEl, contentEl, cachedPayload);
       return;
     }
 
@@ -1244,48 +1212,71 @@
     }
     const stopProgress = startSlowProgress(loadingEl, cachedPayload ? '新しくしています' : '読みこんでいます');
 
+    const request = fetchAndRenderView(view, forceRefresh, loadingEl, contentEl, stopProgress);
+    state.inFlightLoads[view] = request;
+    return request;
+  }
+
+  // 問い合わせられないとき（LINE の準備中・LINE の外）：前の中身か、読みこみ中の箱か、開きかたの案内
+  function showViewWithoutFetching(view, loadingEl, contentEl, cachedPayload) {
+    if (!state.initDone) {
+      // LINE の準備がすむまでは、前の中身か読みこみ中の箱
+      if (cachedPayload) {
+        setLoadingText(loadingEl, '前に開いたときの内容です。新しくしています…');
+      } else {
+        renderSkeleton(contentEl);
+      }
+      return;
+    }
+    if (cachedPayload) {
+      setLoadingText(loadingEl, '前に開いたときの内容です（' + formatSavedTime(state.cacheFetchedAt[view]) + '）。');
+      return;
+    }
+    setLoadingText(loadingEl, '');
+    renderEmptyNote(contentEl, '💬', state.groupId
+      ? '見るには、LINE で開いてね。'
+      : 'グループのトークから開いてね。\nトークで「#注目一覧」と送ると、開くボタンが届きます。');
+  }
+
+  // GAS に問い合わせて、返ってきた中身を出し、端末にも残す。重なったときは、いちばん新しい読みこみの返事だけを使う
+  async function fetchAndRenderView(view, forceRefresh, loadingEl, contentEl, stopProgress) {
     const seq = ++state.loadSeq[view];
     const isLatest = function() {
       return seq === state.loadSeq[view];
     };
-    const request = (async function() {
-      try {
-        const data = await fetchJsonWithParams(view, forceRefresh ? { refresh: '1' } : {});
-        if (!isLatest()) {
-          return;
-        }
-        setViewPayload(view, data);
-        state.fresh[view] = true;
-        state.cacheFetchedAt[view] = Date.now();
-        writeCachedView(view, data);
-        stopProgress();
-        renderViewFromPayload(view, data);
-        setLoadingText(loadingEl, '');
-        if (forceRefresh) {
-          toast(view === 'watchlist' ? '注目一覧を新しくしました' : '実績を新しくしました');
-        }
-      } catch (error) {
-        stopProgress();
-        if (!isLatest()) {
-          return;
-        }
-        const latest = getViewPayload(view);
-        if (latest && error.kind !== 'denied') {
-          renderViewFromPayload(view, latest);
-          setLoadingText(loadingEl, describeLoadError(error, true));
-          return;
-        }
-        setLoadingText(loadingEl, '');
-        renderEmptyNote(contentEl, error.kind === 'denied' ? '🔒' : '📶', describeLoadError(error, false));
-      } finally {
-        if (isLatest()) {
-          state.inFlightLoads[view] = null;
-        }
+    try {
+      const data = await fetchJsonWithParams(view, forceRefresh ? { refresh: '1' } : {});
+      if (!isLatest()) {
+        return;
       }
-    })();
-
-    state.inFlightLoads[view] = request;
-    return request;
+      setViewPayload(view, data);
+      state.fresh[view] = true;
+      state.cacheFetchedAt[view] = Date.now();
+      writeCachedView(view, data);
+      stopProgress();
+      renderViewFromPayload(view, data);
+      setLoadingText(loadingEl, '');
+      if (forceRefresh) {
+        toast(view === 'watchlist' ? '注目一覧を新しくしました' : '実績を新しくしました');
+      }
+    } catch (error) {
+      stopProgress();
+      if (!isLatest()) {
+        return;
+      }
+      const latest = getViewPayload(view);
+      if (latest && error.kind !== 'denied') {
+        renderViewFromPayload(view, latest);
+        setLoadingText(loadingEl, describeLoadError(error, true));
+        return;
+      }
+      setLoadingText(loadingEl, '');
+      renderEmptyNote(contentEl, error.kind === 'denied' ? '🔒' : '📶', describeLoadError(error, false));
+    } finally {
+      if (isLatest()) {
+        state.inFlightLoads[view] = null;
+      }
+    }
   }
 
   // ---- 操作 ----
