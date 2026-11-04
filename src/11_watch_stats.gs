@@ -54,32 +54,24 @@ function buildWatchPerformanceStats_(groupId, options) {
       statsByUser[key] = {
         userId: record.addedByUserId || '',
         displayName: record.addedByDisplayName || '不明',
-        pickCount: 0,
-        deltaSum: 0,
-        deltaCount: 0,
+        deltas: [],
       };
     }
-    const stat = statsByUser[key];
-    stat.pickCount += 1;
-    const delta = calcWatchPriceDelta_(record);
-    if (delta !== null) {
-      stat.deltaSum += delta;
-      stat.deltaCount += 1;
-    }
+    statsByUser[key].deltas.push(calcWatchPriceDelta_(record));
   });
 
   const rows = Object.keys(statsByUser)
     .map(function(key) {
       const stat = statsByUser[key];
       const profile = getMemberProfileOrEmpty_(groupId, stat.userId);
-      const average = stat.deltaCount > 0 ? (stat.deltaSum / stat.deltaCount) : null;
+      const average = averageDeltaOrNull_(stat.deltas);
       return {
         userId: stat.userId,
         displayName: profile.displayName || stat.displayName,
         pictureUrl: profile.pictureUrl || '',
-        pickCount: stat.pickCount,
+        pickCount: stat.deltas.length,
         averageDelta: average,
-        rankingAverageDelta: average === null ? Number.NEGATIVE_INFINITY : average,
+        rankingAverageDelta: deltaForSort_(average),
       };
     })
     .sort(function(a, b) {
@@ -159,20 +151,11 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     return Object.assign(record, { currentDelta: calcWatchPriceDelta_(record) });
   });
 
-  let deltaSum = 0;
-  let deltaCount = 0;
-  hydratedRecords.forEach(function(record) {
-    if (record.currentDelta !== null) {
-      deltaSum += record.currentDelta;
-      deltaCount += 1;
-    }
-  });
-
   const displayRecords = hydratedRecords.slice();
   if (settings.sortByDeltaDesc) {
     displayRecords.sort(function(a, b) {
-      const aDelta = a.currentDelta === null ? Number.NEGATIVE_INFINITY : a.currentDelta;
-      const bDelta = b.currentDelta === null ? Number.NEGATIVE_INFINITY : b.currentDelta;
+      const aDelta = deltaForSort_(a.currentDelta);
+      const bDelta = deltaForSort_(b.currentDelta);
       if (bDelta !== aDelta) {
         return bDelta - aDelta;
       }
@@ -186,9 +169,29 @@ function buildWatchSpotlightDataForUser_(groupId, userId, fallbackDisplayName, o
     displayName: profile.displayName || fallbackDisplayName || filteredRecords[0].addedByDisplayName || '不明',
     pictureUrl: profile.pictureUrl || '',
     pickCount: hydratedRecords.length,
-    averageDelta: deltaCount > 0 ? (deltaSum / deltaCount) : null,
+    averageDelta: averageDeltaOrNull_(hydratedRecords.map(function(record) {
+      return record.currentDelta;
+    })),
     records: displayRecords.slice(0, settings.limit || 5),
   };
+}
+
+// 騰落率（%）の平均。株価がない（null）ものは数えない。1つもなければ null
+function averageDeltaOrNull_(deltas) {
+  const known = deltas.filter(function(delta) {
+    return delta !== null;
+  });
+  if (known.length === 0) {
+    return null;
+  }
+  return known.reduce(function(sum, delta) {
+    return sum + delta;
+  }, 0) / known.length;
+}
+
+// 並べるときの騰落率（株価がない null は、いちばん後ろ）
+function deltaForSort_(delta) {
+  return delta === null ? Number.NEGATIVE_INFINITY : delta;
 }
 
 // 並べた行に順位を付け、上位 maxRank 位までを返す（平均の騰落率と注目した数が同じなら同じ順位）

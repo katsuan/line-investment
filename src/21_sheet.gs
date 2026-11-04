@@ -53,6 +53,12 @@ function getTableData_(sheetName) {
   return table;
 }
 
+// 読んだ表の rowIndex 番め（見出しの下から 0 で数える）の行を、record で書きなおす
+function writeTableRow_(table, rowIndex, record) {
+  table.sheet.getRange(rowIndex + 2, 1, 1, table.headers.length)
+    .setValues([recordToRow_(table.headers, record)]);
+}
+
 // シートの1行を { 見出し: 値 } にする。日時は日本時間の文字にそろえる
 function toRecord_(headers, row) {
   const record = {};
@@ -102,8 +108,7 @@ function upsertGroupRecord_(groupRecord) {
       const merged = Object.assign({}, existing, groupRecord, {
         updatedAt: timestamp,
       });
-      table.sheet.getRange(rowIndex + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
+      writeTableRow_(table, rowIndex, merged);
       return merged;
     }
 
@@ -141,8 +146,7 @@ function upsertMemberRecord_(memberRecord) {
       const merged = Object.assign({}, existing, memberRecord, {
         updatedAt: timestamp,
       });
-      table.sheet.getRange(rowIndex + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
+      writeTableRow_(table, rowIndex, merged);
       return merged;
     }
 
@@ -294,8 +298,7 @@ function backfillActiveWatchlistSnapshot_(groupId, ticker, snapshotRecord) {
       }
 
       merged.updatedAt = timestamp;
-      table.sheet.getRange(index + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
+      writeTableRow_(table, index, merged);
       updatedRecord = merged;
     });
 
@@ -305,57 +308,30 @@ function backfillActiveWatchlistSnapshot_(groupId, ticker, snapshotRecord) {
 
 // その銘柄の注目を外す（外した人と時刻を残す）。外した行を返す（なければ null）
 function deactivateWatchlistRecord_(groupId, ticker, deactivatedByUserId, deactivatedByDisplayName) {
-  return withScriptLock_(function() {
-    const normalizedTicker = normalizeTickerCode_(ticker);
-    const table = getTableData_(SHEET_NAMES_.WATCHLIST);
-    const activeIndexes = [];
-    table.rows.forEach(function(row, index) {
-      if (
-        String(row.groupId) === String(groupId) &&
-        String(row.ticker) === String(normalizedTicker) &&
-        String(row.active) !== 'false'
-      ) {
-        activeIndexes.push(index);
-      }
-    });
-
-    if (activeIndexes.length === 0) {
-      return null;
-    }
-
-    const timestamp = nowJst_();
-    let result = null;
-    activeIndexes.forEach(function(rowIndex) {
-      const existing = table.rows[rowIndex];
-      const merged = Object.assign({}, existing, {
-        active: false,
-        deactivatedAt: timestamp,
-        deactivatedByUserId: deactivatedByUserId || '',
-        deactivatedByDisplayName: deactivatedByDisplayName || '',
-        updatedAt: timestamp,
-      });
-      table.sheet.getRange(rowIndex + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
-      if (!result) {
-        result = merged;
-      }
-    });
-    return result;
-  });
+  const normalizedTicker = normalizeTickerCode_(ticker);
+  const updatedRecords = deactivateActiveWatchlistRows_(groupId, function(row) {
+    return String(row.ticker) === String(normalizedTicker);
+  }, deactivatedByUserId, deactivatedByDisplayName);
+  return updatedRecords.length > 0 ? updatedRecords[0] : null;
 }
 
 // グループの注目を全部外す。外した行の一覧を返す
 function deactivateAllActiveWatchlistRecords_(groupId, deactivatedByUserId, deactivatedByDisplayName) {
+  return deactivateActiveWatchlistRows_(groupId, function() {
+    return true;
+  }, deactivatedByUserId, deactivatedByDisplayName);
+}
+
+// グループの注目中の行のうち、matches が true のものを外す（外した人と時刻を残す）。外した行の一覧を返す
+function deactivateActiveWatchlistRows_(groupId, matches, deactivatedByUserId, deactivatedByDisplayName) {
   return withScriptLock_(function() {
     const table = getTableData_(SHEET_NAMES_.WATCHLIST);
     const timestamp = nowJst_();
     const updatedRecords = [];
-
     table.rows.forEach(function(row, index) {
-      if (String(row.groupId) !== String(groupId) || String(row.active) === 'false') {
+      if (String(row.groupId) !== String(groupId) || String(row.active) === 'false' || !matches(row)) {
         return;
       }
-
       const merged = Object.assign({}, row, {
         active: false,
         deactivatedAt: timestamp,
@@ -363,11 +339,9 @@ function deactivateAllActiveWatchlistRecords_(groupId, deactivatedByUserId, deac
         deactivatedByDisplayName: deactivatedByDisplayName || '',
         updatedAt: timestamp,
       });
-      table.sheet.getRange(index + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
+      writeTableRow_(table, index, merged);
       updatedRecords.push(merged);
     });
-
     return updatedRecords;
   });
 }
@@ -387,8 +361,7 @@ function upsertMarketDataRecord_(marketDataRecord) {
       const merged = Object.assign({}, existing, marketDataRecord, {
         updatedAt: timestamp,
       });
-      table.sheet.getRange(rowIndex + 2, 1, 1, table.headers.length)
-        .setValues([recordToRow_(table.headers, merged)]);
+      writeTableRow_(table, rowIndex, merged);
       return merged;
     }
 

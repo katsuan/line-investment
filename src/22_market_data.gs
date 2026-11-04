@@ -155,25 +155,8 @@ function fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, marketTicker) 
     };
   }
 
-  const visibleLines = extractGoogleFinanceVisibleLines_(html);
-  const debugNameText = extractGoogleFinanceNameFromLines_(visibleLines, marketTicker);
-  const debugPriceText = extractGoogleFinancePriceFromLines_(visibleLines, marketTicker, debugNameText);
-  const debugChangeText = extractGoogleFinanceChangePercentFromLines_(visibleLines, marketTicker, debugNameText);
-  const quote = {
-    ticker: normalizedTicker,
-    marketTicker: marketTicker,
-    name: debugNameText,
-    price: normalizeScrapedNumber_(debugPriceText),
-    changePercent: normalizeScrapedPercent_(debugChangeText),
-    per: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['株価収益率', 'P/E ratio']),
-    high: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['高値', 'High']),
-    low: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['安値', 'Low']),
-    marketCap: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['時価総額', 'Mkt. cap']),
-    volume: normalizeScrapedInteger_(extractGoogleFinanceMetricValueFromLines_(visibleLines, ['取引量', '出来高', 'Volume'])),
-    tradeTime: nowJst_(),
-    fetchedAt: nowJst_(),
-  };
-
+  const parsed = parseGoogleFinanceQuotePage_(html, normalizedTicker, marketTicker);
+  const quote = parsed.quote;
   upsertMarketDataRecord_({
     ticker: normalizedTicker,
     googleFinanceTicker: marketTicker,
@@ -187,15 +170,45 @@ function fetchGoogleFinanceQuoteByMarketTicker_(normalizedTicker, marketTicker) 
     volume: quote.volume,
     tradetime: quote.tradeTime,
     fetchStatus: buildMarketDataFetchStatus_(quote),
-    debugPriceText: debugPriceText,
-    debugChangeText: debugChangeText,
-    debugNameText: debugNameText,
-    debugMetricSnippet: visibleLines.slice(0, 120).join(' | '),
+    debugPriceText: parsed.debug.priceText,
+    debugChangeText: parsed.debug.changeText,
+    debugNameText: parsed.debug.nameText,
+    debugMetricSnippet: parsed.debug.metricSnippet,
   });
 
   return {
     quote: quote,
     fetchStatus: buildMarketDataFetchStatus_(quote),
+  };
+}
+
+// 株価のページの HTML を読み、{ quote, debug } を返す（シートには書かない）。debug は読みとった元の文字（MARKET_DATA の debug○○ に残す）
+function parseGoogleFinanceQuotePage_(html, normalizedTicker, marketTicker) {
+  const visibleLines = extractGoogleFinanceVisibleLines_(html);
+  const nameText = extractGoogleFinanceNameFromLines_(visibleLines, marketTicker);
+  const priceText = extractGoogleFinancePriceFromLines_(visibleLines, marketTicker, nameText);
+  const changeText = extractGoogleFinanceChangePercentFromLines_(visibleLines, marketTicker, nameText);
+  return {
+    quote: {
+      ticker: normalizedTicker,
+      marketTicker: marketTicker,
+      name: nameText,
+      price: normalizeScrapedNumber_(priceText),
+      changePercent: normalizeScrapedPercent_(changeText),
+      per: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['株価収益率', 'P/E ratio']),
+      high: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['高値', 'High']),
+      low: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['安値', 'Low']),
+      marketCap: extractGoogleFinanceMetricValueFromLines_(visibleLines, ['時価総額', 'Mkt. cap']),
+      volume: normalizeScrapedInteger_(extractGoogleFinanceMetricValueFromLines_(visibleLines, ['取引量', '出来高', 'Volume'])),
+      tradeTime: nowJst_(),
+      fetchedAt: nowJst_(),
+    },
+    debug: {
+      nameText: nameText,
+      priceText: priceText,
+      changeText: changeText,
+      metricSnippet: visibleLines.slice(0, 120).join(' | '),
+    },
   };
 }
 

@@ -90,26 +90,17 @@ function buildLiffWatchlistPayload_(groupId, options) {
     latestCachedAt: latestCachedAt,
     items: hydratedRecords.map(function(record) {
       const quote = record.currentQuote || null;
-      const marketTicker = resolveRecordMarketTicker_(record, quote);
       const performanceDelta = formatWatchPerformanceDelta_(record, quote);
-      return {
-        ticker: record.ticker,
-        name: (quote && quote.name) || record.tickerName || record.ticker,
-        marketTicker: marketTicker,
-        marketFlag: buildMarketFlagEmoji_(marketTicker),
-        currentPrice: quote && quote.price ? quote.price : '',
-        addedPrice: record.addedPrice || '',
+      return Object.assign(buildLiffStockItemBase_(record, quote), {
         performanceDelta: performanceDelta,
         marketCap: quote && quote.marketCap ? quote.marketCap : '',
         addedMarketCap: record.addedMarketCap || '',
         marketCapDelta: quote && quote.marketCap && record.addedMarketCap ? performanceDelta : '',
         per: quote && quote.per ? quote.per : '',
         volume: quote && quote.volume ? quote.volume : '',
-        addedAt: formatDateDisplayOnly_(record.addedAt),
         addedByDisplayName: record.addedByDisplayName || '',
-        kabutanUrl: buildKabutanUrl_(record.ticker),
         source: 'Google Finance',
-      };
+      });
     }),
     cached: !settings.forceRefresh,
   };
@@ -148,21 +139,26 @@ function toLiffSpotlight_(spotlight) {
     pickCount: spotlight.pickCount,
     averageDelta: spotlight.averageDelta,
     items: (spotlight.records || []).map(function(record) {
-      const quote = record.currentQuote || null;
-      const marketTicker = resolveRecordMarketTicker_(record, quote);
-      return {
-        ticker: record.ticker,
-        name: (quote && quote.name) || record.tickerName || record.ticker,
-        marketTicker: marketTicker,
-        marketFlag: buildMarketFlagEmoji_(marketTicker),
-        currentPrice: quote && quote.price ? quote.price : '',
-        addedPrice: record.addedPrice || '',
+      return Object.assign(buildLiffStockItemBase_(record, record.currentQuote || null), {
         currentDelta: record.currentDelta,
         currentDeltaText: formatSignedPercent_(record.currentDelta),
-        addedAt: formatDateDisplayOnly_(record.addedAt),
-        kabutanUrl: buildKabutanUrl_(record.ticker),
-      };
+      });
     }),
+  };
+}
+
+// 画面に返す銘柄の1行の、一覧と紹介カードに共通のところ（コード・名前・市場・株価・注目した日・株探）
+function buildLiffStockItemBase_(record, quote) {
+  const marketTicker = resolveRecordMarketTicker_(record, quote);
+  return {
+    ticker: record.ticker,
+    name: (quote && quote.name) || record.tickerName || record.ticker,
+    marketTicker: marketTicker,
+    marketFlag: buildMarketFlagEmoji_(marketTicker),
+    currentPrice: quote && quote.price ? quote.price : '',
+    addedPrice: record.addedPrice || '',
+    addedAt: formatDateDisplayOnly_(record.addedAt),
+    kabutanUrl: buildKabutanUrl_(record.ticker),
   };
 }
 

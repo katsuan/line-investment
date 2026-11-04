@@ -130,9 +130,11 @@ function refreshActiveWatchlistMarketCaps() {
 
     try {
       const quote = getMarketQuoteByTicker_(ticker);
+      const tickerName = (quote && quote.name) || record.tickerName || '';
+      const marketTicker = (quote && quote.marketTicker) || record.addedMarketTicker || composeMarketTicker_(ticker);
       const backfilledWatchlistRecord = backfillActiveWatchlistSnapshot_(groupId, ticker, {
-        tickerName: (quote && quote.name) || record.tickerName || '',
-        addedMarketTicker: (quote && quote.marketTicker) || record.addedMarketTicker || composeMarketTicker_(ticker),
+        tickerName: tickerName,
+        addedMarketTicker: marketTicker,
         addedPrice: (quote && quote.price) || '',
         addedMarketCap: (quote && quote.marketCap) || '',
         addedChangePercent: (quote && quote.changePercent) || '',
@@ -141,8 +143,8 @@ function refreshActiveWatchlistMarketCaps() {
       results.push({
         groupId: groupId,
         ticker: ticker,
-        tickerName: (quote && quote.name) || record.tickerName || '',
-        marketTicker: (quote && quote.marketTicker) || record.addedMarketTicker || composeMarketTicker_(ticker),
+        tickerName: tickerName,
+        marketTicker: marketTicker,
         marketCap: (quote && quote.marketCap) || '',
         per: (quote && quote.per) || '',
         fetchedAt: (quote && quote.fetchedAt) || nowJst_(),

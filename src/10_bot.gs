@@ -16,9 +16,7 @@ function handleJoin_(event) {
   }
   registerGroup_(event, groupId, getGroupSummary_);
 
-  sendReplyMessage_(event.replyToken, [buildJoinGuideFlexMessage_(buildLiffAppLaunchUrl_(groupId, 'watchlist'))], groupId, {
-    quickReply: buildMainQuickReply_(groupId),
-  });
+  replyWithMainQuickReply_({ event: event, groupId: groupId }, [buildJoinGuideFlexMessage_(buildLiffAppLaunchUrl_(groupId, 'watchlist'))]);
   logEventResult_(event, 'join_reply', 'success', 'group registered and guide sent', '');
 }
 
@@ -165,12 +163,12 @@ function recordRuleAgreement_(event, groupId, userId, ruleVersion) {
   });
   addAllowedUserId_(userId);
 
-  sendReplyMessage_(event.replyToken, [
+  replyWithMainQuickReply_({ event: event, groupId: groupId }, [
     buildUsageGuideFlexMessage_({
       leadText: (displayName ? displayName + 'さん、' : '') + 'ルールの確認を記録しました。今日から使えます。',
       watchlistUrl: buildLiffAppLaunchUrl_(groupId, 'watchlist'),
     }),
-  ], groupId, { quickReply: buildMainQuickReply_(groupId) });
+  ]);
   logEventResult_(event, 'agree_rules', 'success', 'rule agreement recorded', '');
 }
 
@@ -256,6 +254,11 @@ function replyText_(context, text, options) {
     withQuickReply ? { quickReply: buildMainQuickReply_(context.groupId, settings.quickReplyItems) } : undefined);
 }
 
+// カードなどの返事に、次の操作（H3）を付けて返す（context：event と groupId）
+function replyWithMainQuickReply_(context, messages) {
+  sendReplyMessage_(context.event.replyToken, messages, context.groupId, { quickReply: buildMainQuickReply_(context.groupId) });
+}
+
 // ルールの確認のカード＋「✅ ルールを確認しました」のクイックリプライ（押せるのは userIds の人だけ）
 function replyRuleConfirmationPrompt_(replyToken, groupId, rule, displayNames, userIds, leadMessages) {
   sendReplyMessage_(replyToken, (leadMessages || []).concat([
@@ -302,7 +305,7 @@ function handleRuleCommand_(context) {
   const groupId = context.groupId;
   const rule = getCurrentRuleForGroup_(groupId);
   if (isAccessAllowed_(groupId, context.userId)) {
-    sendReplyMessage_(event.replyToken, [buildRuleFlexMessage_(rule)], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    replyWithMainQuickReply_(context, [buildRuleFlexMessage_(rule)]);
   } else {
     // まだ確認していない人には、確認のボタン付きのカードを出す
     const actor = getActorProfileForGroup_(groupId, context.userId);
@@ -315,9 +318,7 @@ function handleRuleCommand_(context) {
 function handleUnconfirmedCommand_(context) {
   const rule = getCurrentRuleForGroup_(context.groupId);
   const members = getUnconfirmedMembers_(context.groupId, rule.version);
-  sendReplyMessage_(context.event.replyToken, [buildUnconfirmedMembersFlexMessage_(rule, members)], context.groupId, {
-    quickReply: buildMainQuickReply_(context.groupId),
-  });
+  replyWithMainQuickReply_(context, [buildUnconfirmedMembersFlexMessage_(rule, members)]);
   logEventResult_(context.event, 'command_unconfirmed', 'success', 'unconfirmed members sent', '');
 }
 
@@ -332,9 +333,9 @@ function handleBotSettingsCommand_(context) {
 
 // #使い方・#ヘルプ：使い方のカード
 function handleUsageCommand_(context) {
-  sendReplyMessage_(context.event.replyToken, [buildUsageGuideFlexMessage_({
+  replyWithMainQuickReply_(context, [buildUsageGuideFlexMessage_({
     watchlistUrl: buildLiffAppLaunchUrl_(context.groupId, 'watchlist'),
-  })], context.groupId, { quickReply: buildMainQuickReply_(context.groupId) });
+  })]);
   logEventResult_(context.event, 'command_usage_guide', 'success', 'usage guide sent', context.text);
 }
 
@@ -348,9 +349,7 @@ function handleLiffLaunchCommand_(context) {
     return;
   }
 
-  sendReplyMessage_(context.event.replyToken, [buildLiffLaunchFlexMessage_(liffUrl, command.view)], context.groupId, {
-    quickReply: buildMainQuickReply_(context.groupId),
-  });
+  replyWithMainQuickReply_(context, [buildLiffLaunchFlexMessage_(liffUrl, command.view)]);
   logEventResult_(context.event, command.action, 'success', command.view + ' launch sent', liffUrl);
 }
 
@@ -446,16 +445,12 @@ function handleWatchAddCommand_(context) {
     : createWatchlistRecordIfAbsent_(buildWatchlistRecordFromQuote_(groupId, ticker, quoteAtRegistration, actor));
 
   if (!added.created) {
-    sendReplyMessage_(event.replyToken, [buildWatchAlreadyActiveFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)], groupId, {
-      quickReply: buildMainQuickReply_(groupId),
-    });
+    replyWithMainQuickReply_(context, [buildWatchAlreadyActiveFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)]);
     logEventResult_(event, 'command_watch_add', 'ignored', 'watchlist record already active', ticker);
     return;
   }
 
-  sendReplyMessage_(event.replyToken, [buildWatchRegistrationFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)], groupId, {
-    quickReply: buildMainQuickReply_(groupId),
-  });
+  replyWithMainQuickReply_(context, [buildWatchRegistrationFlexMessage_(added.record, quoteAtRegistration, watchlistUrl)]);
   logEventResult_(event, 'command_watch_add', 'success', 'watchlist record created', ticker);
 }
 
