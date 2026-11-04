@@ -277,26 +277,12 @@ function backfillActiveWatchlistSnapshot_(groupId, ticker, snapshotRecord) {
 
       const merged = Object.assign({}, row);
       const fields = snapshotRecord || {};
-
-      if (!merged.tickerName && fields.tickerName) {
-        merged.tickerName = fields.tickerName;
-      }
-      if (!merged.addedMarketTicker && fields.addedMarketTicker) {
-        merged.addedMarketTicker = fields.addedMarketTicker;
-      }
-      if (!merged.addedPrice && fields.addedPrice) {
-        merged.addedPrice = fields.addedPrice;
-      }
-      if (!merged.addedMarketCap && fields.addedMarketCap) {
-        merged.addedMarketCap = fields.addedMarketCap;
-      }
-      if (!merged.addedChangePercent && fields.addedChangePercent) {
-        merged.addedChangePercent = fields.addedChangePercent;
-      }
-      if (!merged.addedTradeTime && fields.addedTradeTime) {
-        merged.addedTradeTime = fields.addedTradeTime;
-      }
-
+      // 空欄だけを埋める（入っている値は変えない）
+      ['tickerName', 'addedMarketTicker', 'addedPrice', 'addedMarketCap', 'addedChangePercent', 'addedTradeTime'].forEach(function(key) {
+        if (!merged[key] && fields[key]) {
+          merged[key] = fields[key];
+        }
+      });
       merged.updatedAt = timestamp;
       writeTableRow_(table, index, merged);
       updatedRecord = merged;

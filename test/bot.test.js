@@ -896,3 +896,116 @@ test("株価を覚える分数：設定がないときは決まりの5分（0分
   assert.equal(make({ MARKET_DATA_CACHE_MINUTES: "15" }).call("getMarketDataCacheMinutes_"), 15);
   assert.equal(make({ MARKET_DATA_CACHE_MINUTES: "abc" }).call("getMarketDataCacheMinutes_"), 5);
 });
+
+// ---- 3周目：まだテストのなかった大事な動き ----
+
+// 注目の1行（見出しの名前で値を入れる。入れなかった所は空）
+function watchRow(gas, values) {
+  const headers = gas.rows("WATCHLIST")[0];
+  const base = { groupId: GROUP, addedAt: "2026-10-01 09:00:00", addedByUserId: MEMBER, addedByDisplayName: "メンバー", active: true };
+  const record = { ...base, ...values };
+  return headers.map((h) => (h in record ? record[h] : ""));
+}
+const watchCol = (gas, name) => gas.rows("WATCHLIST")[0].indexOf(name);
+
+test("管理者の #解除（コードなし）：このグループの注目だけを全部外し、外した数を返す", () => {
+  const gas = make();
+  gas.seed("WATCHLIST", [
+    gas.rows("WATCHLIST")[0],
+    watchRow(gas, { ticker: "6758" }),
+    watchRow(gas, { ticker: "7203" }),
+    watchRow(gas, { ticker: "9984", groupId: OTHER_GROUP }),
+    watchRow(gas, { ticker: "8306", active: false }),
+  ]);
+  text(gas, "#解除", ADMIN);
+  const rows = gas.rows("WATCHLIST").slice(1);
+  const active = watchCol(gas, "active");
+  assert.deepEqual(rows.map((r) => r[active]), [false, false, true, false]);
+  assert.equal(rows[0][watchCol(gas, "deactivatedByUserId")], ADMIN, "外した人を残す");
+  assert.match(replyTexts(gas), /全部外しました（2件）/);
+  text(gas, "#解除", ADMIN);
+  assert.match(replyTexts(gas), /外す注目銘柄はありません/);
+});
+
+test("#解除 7203：同じ銘柄の注目が2行あっても、両方外す", () => {
+  const gas = make();
+  gas.seed("WATCHLIST", [gas.rows("WATCHLIST")[0], watchRow(gas, { ticker: "7203" }), watchRow(gas, { ticker: "7203" })]);
+  text(gas, "#解除 7203");
+  const active = watchCol(gas, "active");
+  assert.deepEqual(gas.rows("WATCHLIST").slice(1).map((r) => r[active]), [false, false]);
+  assert.match(replyTexts(gas), /注目から外しました：7203/);
+});
+
+test("画面のしらべる：株価と、注目中ならだれがいつ入れたかと騰落率を返す。株価がない銘柄でも止まらない", () => {
+  const gas = makeWith((url) => (/6758:TYO/.test(decodeURIComponent(url)) ? response(200, QUOTE_PAGE("6758:TYO", "ソニーグループ", "¥3,300", "+1.00%")) : response(404, "")));
+  gas.seed("WATCHLIST", [gas.rows("WATCHLIST")[0], watchRow(gas, { ticker: "6758", addedPrice: "3000", addedMarketTicker: "6758:TYO" })]);
+  gas.seed("MEMBERS", [gas.rows("MEMBERS")[0], [GROUP, MEMBER, "メンバー", "", "2026-10-01 09:00:00", 1, true, ""]]);
+  const watched = liff(gas, { idToken: "tok-member", view: "quote", ticker: "6758" });
+  assert.equal(watched.ok, true);
+  assert.equal(watched.data.name, "ソニーグループ");
+  assert.equal(watched.data.currentPrice, "3300");
+  assert.equal(watched.data.isWatched, true);
+  assert.equal(watched.data.watchedBy, "メンバー");
+  assert.equal(watched.data.performanceDelta, "+10.00%");
+  const unknown = liff(gas, { idToken: "tok-member", view: "quote", ticker: "1234" });
+  assert.equal(unknown.ok, true);
+  assert.equal(unknown.data.currentPrice, "");
+  assert.equal(unknown.data.isWatched, false);
+  assert.doesNotMatch(JSON.stringify(watched), new RegExp(MEMBER), "LINE のユーザー ID は返さない");
+});
+
+test("refreshActiveWatchlistMarketCaps：注目したときの空欄だけを埋め、入っている値は変えない", () => {
+  const gas = makeWith((url) => (/6758:TYO/.test(decodeURIComponent(url)) ? response(200, QUOTE_PAGE("6758:TYO", "ソニーグループ", "¥3,300", "+1.00%")) : response(404, "")));
+  gas.seed("WATCHLIST", [
+    gas.rows("WATCHLIST")[0],
+    watchRow(gas, { ticker: "6758", addedPrice: "3000" }),
+    watchRow(gas, { ticker: "6758", groupId: OTHER_GROUP, active: false }),
+    watchRow(gas, { ticker: "9999" }),
+  ]);
+  const results = fresh(gas).call("refreshActiveWatchlistMarketCaps");
+  const row = gas.rows("WATCHLIST")[1];
+  assert.equal(row[watchCol(gas, "addedPrice")], "3000", "入っている値は変えない");
+  assert.equal(row[watchCol(gas, "addedMarketCap")], "48.5兆");
+  assert.equal(row[watchCol(gas, "tickerName")], "ソニーグループ");
+  assert.equal(gas.rows("WATCHLIST")[2][watchCol(gas, "addedMarketCap")], "", "外した注目は触らない");
+  assert.equal(results.length, 2);
+  assert.equal(results[1].status, "error", "株価が取れない銘柄も、止まらずに結果に残す");
+});
+
+test("カードが断られたら、原因を LAST_LINE_ERRORS（5件まで）と EVENT_LOG に残す", () => {
+  const gas = createGas({
+    dir: path.join(__dirname, "../src"),
+    properties: { SPREADSHEET_ID: "SPREADSHEET_TEST", LINE_CHANNEL_ACCESS_TOKEN: "t", WEBHOOK_KEY: "hook-secret", ALLOWED_GROUP_IDS: GROUP, ALLOWED_USER_IDS: MEMBER, LIFF_APP_BASE_URL: "https://example.com/liff/" },
+    fetch: (url, opt) => (/message\/reply$/.test(url) ? response(400, { message: "bad flex" }) : lineFetch(url, opt)),
+  });
+  setupSheets(gas);
+  gas.reset();
+  for (let i = 0; i < 7; i += 1) text(gas, "#使い方");
+  const errors = JSON.parse(gas.properties.LAST_LINE_ERRORS);
+  assert.equal(errors.length, 5);
+  assert.match(errors[0].error, /400/);
+  assert.ok(gas.rows("EVENT_LOG").some((r) => r[4] === "reply_flex_fallback" && r[5] === "error"));
+  assert.match(gas.replies().filter((r) => r.kind === "push")[0].messages[0].text, /文字だけで返しました/);
+});
+
+test("入ってきた人の名前が LINE から聞けなくても、ようこそのカードを出し、MEMBERS に記録する", () => {
+  const gas = make();
+  const stranger = "U" + "e".repeat(32);
+  event(gas, { type: "memberJoined", replyToken: "r-join", source: { type: "group", groupId: GROUP }, joined: { members: [{ type: "user", userId: stranger }] } });
+  const welcome = gas.lastMessages()[0];
+  assert.equal(welcome.type, "flex");
+  assert.match(JSON.stringify(welcome), /新しいメンバーさん/);
+  assert.ok(gas.rows("MEMBERS").some((r) => r[1] === stranger && r[2] === ""));
+  assert.ok(gas.rows("EVENT_LOG").some((r) => r[4] === "get_member_profile" && r[5] === "error"));
+  assert.deepEqual(gas.flexProblems(), []);
+});
+
+test("#注目実績：実績の画面を開くカード。画面の URL がないときは、管理者に伝えてと返す", () => {
+  const gas = make();
+  text(gas, "#注目実績");
+  assert.match(JSON.stringify(gas.lastMessages()), /view=performance/);
+  assert.deepEqual(gas.flexProblems(), []);
+  const noUrl = make({ LIFF_APP_BASE_URL: "" });
+  text(noUrl, "#注目実績");
+  assert.match(replyTexts(noUrl), /まだ用意されていません/);
+});
