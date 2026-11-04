@@ -36,11 +36,6 @@ function sendReplyMessage_(replyToken, messages, groupId, options) {
     if (allText || !isLineBadRequestError_(error)) {
       throw error;
     }
-    const fallbackText = prepared.map(function(message) {
-      return message.type === 'text' ? message.text : buildFlexFallbackText_(message);
-    }).filter(function(text) {
-      return !!text;
-    }).join('\n\n') || 'うまく表示できませんでした。';
     if (!groupId) {
       throw error;
     }
@@ -48,7 +43,7 @@ function sendReplyMessage_(replyToken, messages, groupId, options) {
       to: groupId,
       messages: [Object.assign(attachSenderToLineMessage_({
         type: 'text',
-        text: (fallbackText + '\n\n（カードを出せなかったので、文字だけで返しました）').slice(0, 4900),
+        text: buildReplyFallbackText_(prepared).slice(0, 4900),
       }, sender), prepared[prepared.length - 1].quickReply ? { quickReply: prepared[prepared.length - 1].quickReply } : {})],
     });
     appendEventLog_({
@@ -60,6 +55,16 @@ function sendReplyMessage_(replyToken, messages, groupId, options) {
       errorMessage: buildErrorMessage_(error).slice(0, 1000),
     });
   }
+}
+
+// カードが断られたときに送りなおす文：文はそのまま、カードは altText とリンクにして、最後にことわりを付ける
+function buildReplyFallbackText_(messages) {
+  const text = messages.map(function(message) {
+    return message.type === 'text' ? message.text : buildFlexFallbackText_(message);
+  }).filter(function(part) {
+    return !!part;
+  }).join('\n\n') || 'うまく表示できませんでした。';
+  return text + '\n\n（カードを出せなかったので、文字だけで返しました）';
 }
 
 // カードの代わりの文字：altText と、ボタンの行き先（リンク）

@@ -130,7 +130,7 @@ function markAsAdminTestSample_(message) {
   if (firstHeaderText && firstHeaderText.type === 'text') {
     firstHeaderText.text = ADMIN_TEST_MARK_ + ' 見本・' + firstHeaderText.text;
   } else if (bubble.body && bubble.body.contents) {
-    bubble.body.contents.unshift({ type: 'text', text: ADMIN_TEST_MARK_ + ' 見本', size: 'xs', color: '#666666' });
+    bubble.body.contents.unshift({ type: 'text', text: ADMIN_TEST_MARK_ + ' 見本', size: 'xs', color: CARD_MUTED_TEXT_COLOR_ });
   }
   disableNonUriActions_(bubble);
   return copy;
@@ -187,7 +187,7 @@ function buildAdminTestFallbackMessage_() {
   return {
     type: 'text',
     text: (ADMIN_TEST_MARK_ + ' カードが断られたとき、グループにはこの文だけが届きます（本物は push で送りなおし、原因は LAST_LINE_ERRORS と EVENT_LOG に残ります）。\n\n' +
-      buildFlexFallbackText_(sample) + '\n\n（カードを出せなかったので、文字だけで返しました）').slice(0, 4900),
+      buildReplyFallbackText_([sample])).slice(0, 4900),
   };
 }
 
@@ -199,45 +199,18 @@ function buildAdminTestMenuFlexMessage_() {
     '自己点検：設定・シート・LINE・カードのようす',
     '断られたとき：カードが通らないときの文の返事',
   ];
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: ADMIN_TEST_MARK_ + ' テスト：見本・自己点検・断られたときの返事を試せます',
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: buildCardBandHeader_(ADMIN_TEST_MARK_ + ' 管理者だけ', 'テストの窓口'),
-      styles: buildCardBandStyles_(),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'text',
-            text: 'トークのいちばん下のボタンで試せます。本物の記録・シート・グループには書きません。',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: items.map(function(item) {
-              return '・' + item;
-            }).join('\n'),
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: '季節の絵文字は、このボットでは使っていません。ボタンが消えたら「#テスト」を送ると出なおします。',
-            size: 'xxs',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-    },
-  };
+    size: 'mega',
+    header: buildCardBandHeader_(ADMIN_TEST_MARK_ + ' 管理者だけ', 'テストの窓口'),
+    bodyContents: [
+      buildCardBodyText_('トークのいちばん下のボタンで試せます。本物の記録・シート・グループには書きません。'),
+      buildCardNoteText_(items.map(function(item) {
+        return '・' + item;
+      }).join('\n')),
+      buildCardNoteText_('季節の絵文字は、このボットでは使っていません。ボタンが消えたら「#テスト」を送ると出なおします。', 'xxs'),
+    ],
+  });
 }
 
 // 押すと返事が来るものだけ（1回きりではないが、いまの画面の続きなのでクイックリプライに。H2）

@@ -55,13 +55,7 @@ function handleMemberJoined_(event) {
 
   const displayNames = [];
   joinedMembers.forEach(function(member) {
-    let displayName = '';
-    try {
-      const profile = getGroupMemberProfile_(groupId, member.userId);
-      displayName = profile.displayName || '';
-    } catch (error) {
-      logEventResult_(event, 'get_member_profile', 'error', 'profile fetch failed for ' + member.userId, buildErrorMessage_(error));
-    }
+    const displayName = fetchMemberDisplayNameOrEmpty_(event, groupId, member.userId, 'profile fetch failed for ' + member.userId);
 
     upsertMemberRecord_({
       groupId: groupId,
@@ -99,10 +93,7 @@ function handlePostback_(event) {
   }
 
   if (params.action !== 'agree_rules') {
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: 'このボタンは、いまは使えません。「#使い方」を送ると、できることが見られます。',
-    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    replyText_({ event: event, groupId: groupId }, 'このボタンは、いまは使えません。「#使い方」を送ると、できることが見られます。', { mainQuickReply: true });
     logEventResult_(event, 'postback_ignored', 'ignored', 'unsupported action', '');
     return;
   }
@@ -122,10 +113,7 @@ function handleAgreeRulesPostback_(event, params) {
 
   if (!userId) {
     // LINE が押した人を知らせてこなかった（記録できないので、書かずに返す）
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: 'だれが押したのかが、わかりませんでした。LINE のアプリを新しくしてから、もう一度押してね。',
-    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    replyText_({ event: event, groupId: groupId }, 'だれが押したのかが、わかりませんでした。LINE のアプリを新しくしてから、もう一度押してね。', { mainQuickReply: true });
     logEventResult_(event, 'agree_rules', 'ignored', 'userId missing', '');
     return;
   }
@@ -135,10 +123,9 @@ function handleAgreeRulesPostback_(event, params) {
     return !!id;
   });
   if (targetUserIds.length > 0 && targetUserIds.indexOf(userId) < 0) {
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: 'このボタンは、案内した人のためのものです。\nルールは「#ルール」で見られます。',
-    }], groupId, { quickReply: buildMainQuickReply_(groupId, [buildMessageQuickReplyItem_('📜 ルールを見る', '#ルール')]) });
+    replyText_({ event: event, groupId: groupId }, 'このボタンは、案内した人のためのものです。\nルールは「#ルール」で見られます。', {
+      quickReplyItems: [buildMessageQuickReplyItem_('📜 ルールを見る', '#ルール')],
+    });
     logEventResult_(event, 'postback_ignored', 'ignored', 'tapped by non-target user', userId);
     return;
   }
@@ -156,10 +143,7 @@ function handleAgreeRulesPostback_(event, params) {
   const ruleVersion = Number(currentRule.version);
 
   if (hasAgreedCurrentRule_(groupId, userId, ruleVersion)) {
-    sendReplyMessage_(event.replyToken, [{
-      type: 'text',
-      text: 'ルールの確認は、もう記録しています。そのまま使えます。',
-    }], groupId, { quickReply: buildMainQuickReply_(groupId) });
+    replyText_({ event: event, groupId: groupId }, 'ルールの確認は、もう記録しています。そのまま使えます。', { mainQuickReply: true });
     logEventResult_(event, 'agree_rules', 'ignored', 'already agreed', '');
     return;
   }
@@ -169,13 +153,7 @@ function handleAgreeRulesPostback_(event, params) {
 
 // ルールの確認を記録し（MEMBERS と、使ってよい人の一覧）、使い方のカードで返す
 function recordRuleAgreement_(event, groupId, userId, ruleVersion) {
-  let displayName = '';
-  try {
-    const profile = getGroupMemberProfile_(groupId, userId);
-    displayName = profile.displayName || '';
-  } catch (error) {
-    logEventResult_(event, 'get_member_profile', 'error', 'profile fetch failed for agree_rules', buildErrorMessage_(error));
-  }
+  const displayName = fetchMemberDisplayNameOrEmpty_(event, groupId, userId, 'profile fetch failed for agree_rules');
 
   upsertMemberRecord_({
     groupId: groupId,
@@ -525,20 +503,14 @@ function assertGroupEvent_(event) {
 
 // 送った人の LINE の名前を聞き、名前が変わっていれば MEMBERS を直す。{ userId, displayName } を返す
 function getActorProfileForGroup_(groupId, userId) {
-  let displayName = '';
   if (!userId) {
     return { userId: '', displayName: '' };
   }
 
-  try {
-    const profile = getGroupMemberProfile_(groupId, userId);
-    displayName = profile.displayName || '';
-  } catch (error) {
-    logEventResult_({
-      type: 'message',
-      source: { groupId: groupId, userId: userId },
-    }, 'get_member_profile', 'error', 'actor profile fetch failed', buildErrorMessage_(error));
-  }
+  const displayName = fetchMemberDisplayNameOrEmpty_({
+    type: 'message',
+    source: { groupId: groupId, userId: userId },
+  }, groupId, userId, 'actor profile fetch failed');
 
   if (displayName && !isMemberRecordUpToDate_(groupId, userId, displayName)) {
     upsertMemberRecord_({
@@ -553,6 +525,16 @@ function getActorProfileForGroup_(groupId, userId) {
     userId: userId,
     displayName: displayName,
   };
+}
+
+// LINE にメンバーの名前を聞く。聞けなければ空を返し、EVENT_LOG に残す（logEvent：記録に使う知らせ・detail：記録の説明）
+function fetchMemberDisplayNameOrEmpty_(logEvent, groupId, userId, detail) {
+  try {
+    return getGroupMemberProfile_(groupId, userId).displayName || '';
+  } catch (error) {
+    logEventResult_(logEvent, 'get_member_profile', 'error', detail, buildErrorMessage_(error));
+    return '';
+  }
 }
 
 // MEMBERS の名前が、いまの名前と同じか（同じなら書かない）

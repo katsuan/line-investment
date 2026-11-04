@@ -22,45 +22,20 @@ function buildUnconfirmedMembersFlexMessage_(rule, members) {
     return '・' + toLineText_(member.displayName, '（名前がわからない人）');
   });
   const isEmpty = members.length === 0;
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: isEmpty
       ? '全員が、いまのルールを確認しています'
       : 'ルールをまだ確認していない人：' + members.length + '人',
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, isEmpty ? '全員が確認しています' : 'まだ確認していない人 ' + members.length + '人'),
-      styles: buildCardBandStyles_(),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'text',
-            text: isEmpty ? '全員が、いまのルールを確認しています。' : names.join('\n'),
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: '確認は、トークで「#ルール」を送ると出る「✅ ルールを確認しました」でできます。',
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          buildCardButton_('📜 ルールを見る', { type: 'message', text: '#ルール' }, true),
-        ],
-      },
-    },
-  };
+    size: 'mega',
+    header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, isEmpty ? '全員が確認しています' : 'まだ確認していない人 ' + members.length + '人'),
+    bodyContents: [
+      buildCardBodyText_(isEmpty ? '全員が、いまのルールを確認しています。' : names.join('\n')),
+      buildCardNoteText_('確認は、トークで「#ルール」を送ると出る「✅ ルールを確認しました」でできます。'),
+    ],
+    footer: buildCardButtonFooter_([
+      buildCardButton_('📜 ルールを見る', { type: 'message', text: '#ルール' }, true),
+    ]),
+  });
 }
 
 // メンバーが入ったときの、ようこそのカード（ルールと確認のボタン。押せるのは targetUserIds の人）
@@ -89,30 +64,13 @@ function buildRuleConfirmationPromptFlexMessage_(rule, displayNames, targetUserI
 
 // ルールの確認をお願いするカード（ようこそ・はじめに）：あいさつ → ルール → 確認のしかた
 function buildRuleAgreementCard_(options) {
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: options.altText,
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: options.header,
-      styles: buildCardBandStyles_(),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'text',
-            text: options.leadText,
-            size: 'sm',
-            wrap: true,
-          },
-        ].concat(buildRuleTextContents_(options.rule, 'sm')),
-      },
-      footer: buildRuleAgreementFooter_(options.rule.version, options.targetUserIds),
-    },
-  };
+    size: 'mega',
+    header: options.header,
+    bodyContents: [buildCardBodyText_(options.leadText)].concat(buildRuleTextContents_(options.rule, 'sm')),
+    footer: buildRuleAgreementFooter_(options.rule.version, options.targetUserIds),
+  });
 }
 
 // ルールの中身（目的・禁止事項・おことわり）。separatorMargin は区切り線の上下のすきま
@@ -139,13 +97,7 @@ function buildRuleTextContents_(rule, separatorMargin) {
       size: 'xs',
     },
     Object.assign({}, separator),
-    {
-      type: 'text',
-      text: toLineText_(rule.disclaimer, '-'),
-      wrap: true,
-      size: 'xxs',
-      color: '#666666',
-    },
+    buildCardNoteText_(toLineText_(rule.disclaimer, '-'), 'xxs'),
   ];
 }
 
@@ -184,13 +136,7 @@ function buildRuleAgreementFooter_(ruleVersion, targetUserIds) {
     layout: 'vertical',
     spacing: 'sm',
     contents: [
-      {
-        type: 'text',
-        text: 'ルールを読んだら「✅ ルールを確認しました」を押してね。',
-        size: 'xs',
-        color: '#666666',
-        wrap: true,
-      },
+      buildCardNoteText_('ルールを読んだら「✅ ルールを確認しました」を押してね。'),
       buildCardButton_('✅ ルールを確認しました', buildRuleAgreementAction_(ruleVersion, targetUserIds), true),
     ],
   };
@@ -207,22 +153,12 @@ function buildRuleAgreementQuickReply_(ruleVersion, targetUserIds) {
 
 // #ルール のカード（いまのルールの全文）
 function buildRuleFlexMessage_(rule) {
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: '現在のグループルール',
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, rule.title),
-      styles: buildCardBandStyles_(),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: buildRuleTextContents_(rule, ''),
-      },
-    },
-  };
+    size: 'mega',
+    header: buildCardBandHeader_('📜 ルール・Version ' + rule.version, rule.title),
+    bodyContents: buildRuleTextContents_(rule, ''),
+  });
 }
 
 // #Bot設定 のカード。ほかのグループの数は showAccessCounts のときだけ（管理者）
@@ -247,45 +183,14 @@ function buildBotSettingsFlexMessage_(group, options) {
             weight: 'bold',
             size: 'md',
           },
-          {
-            type: 'text',
-            text: '新規参加案内：有効',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: 'ルールVersion：' + (group && group.ruleVersion ? group.ruleVersion : DEFAULT_RULE_VERSION_),
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: 'ルール確認記録：有効',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: '自動相場投稿：未実装',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: '利用制限：' + (accessControlEnabled ? '有効' : '未設定'),
-            size: 'sm',
-            wrap: true,
-          },
+          buildCardBodyText_('新規参加案内：有効'),
+          buildCardBodyText_('ルールVersion：' + (group && group.ruleVersion ? group.ruleVersion : DEFAULT_RULE_VERSION_)),
+          buildCardBodyText_('ルール確認記録：有効'),
+          buildCardBodyText_('自動相場投稿：未実装'),
+          buildCardBodyText_('利用制限：' + (accessControlEnabled ? '有効' : '未設定')),
         ].concat(showAccessCounts ? [
           // ほかのグループの数もわかるので、管理者にだけ出す
-          {
-            type: 'text',
-            text: '許可グループ数：' + allowedGroupIds.length + ' / 許可ユーザー数：' + allowedUserIds.length,
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
+          buildCardNoteText_('許可グループ数：' + allowedGroupIds.length + ' / 許可ユーザー数：' + allowedUserIds.length),
         ] : []),
       },
     },
@@ -297,44 +202,19 @@ function buildLiffLaunchFlexMessage_(liffUrl, view) {
   const isPerformance = view === 'performance';
   const band = isPerformance ? '🏆 注目実績' : '📋 注目一覧';
   const title = isPerformance ? 'みんなの実績を見る' : '注目一覧を画面で見る';
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: isPerformance ? '注目実績を開く' : '注目一覧を開く',
-    contents: {
-      type: 'bubble',
-      header: buildCardBandHeader_(band, title),
-      styles: buildCardBandStyles_(),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: [
-          {
-            type: 'text',
-            text: isPerformance
-              ? '注目した銘柄が、そのあと何%動いたかの順位を見られます。'
-              : '注目中の銘柄と、いまの株価を表で見られます。',
-            size: 'sm',
-            wrap: true,
-          },
-          {
-            type: 'text',
-            text: '画面の上のタブで、一覧・実績・しらべるを切りかえられます。',
-            size: 'xs',
-            color: '#666666',
-            wrap: true,
-          },
-        ],
-      },
-      footer: {
-        type: 'box',
-        layout: 'vertical',
-        contents: [
-          buildCardButton_(isPerformance ? '🏆 実績を開く' : '📋 注目一覧を開く', { type: 'uri', uri: liffUrl }, true),
-        ],
-      },
-    },
-  };
+    header: buildCardBandHeader_(band, title),
+    bodyContents: [
+      buildCardBodyText_(isPerformance
+        ? '注目した銘柄が、そのあと何%動いたかの順位を見られます。'
+        : '注目中の銘柄と、いまの株価を表で見られます。'),
+      buildCardNoteText_('画面の上のタブで、一覧・実績・しらべるを切りかえられます。'),
+    ],
+    footer: buildCardButtonFooter_([
+      buildCardButton_(isPerformance ? '🏆 実績を開く' : '📋 注目一覧を開く', { type: 'uri', uri: liffUrl }, true),
+    ]),
+  });
 }
 
 // 押すと入力欄に文字を入れるだけの操作（何も送らない・記録しない。押されたことだけ EVENT_LOG に残す）
@@ -366,13 +246,7 @@ function buildUsageRow_(card) {
         color: BOT_ACCENT_COLOR_,
         wrap: true,
       },
-      {
-        type: 'text',
-        text: card.detail,
-        size: 'xs',
-        color: '#666666',
-        wrap: true,
-      },
+      buildCardNoteText_(card.detail),
     ],
   };
 }
@@ -405,8 +279,6 @@ function buildUsageGuideFlexMessage_(options) {
     });
   }
 
-
-
   const bodyContents = [];
   if (settings.leadText) {
     bodyContents.push({
@@ -417,13 +289,7 @@ function buildUsageGuideFlexMessage_(options) {
       wrap: true,
     });
   }
-  bodyContents.push({
-    type: 'text',
-    text: '「#」のあとに銘柄コードを送ると、注目に入ります。下の言葉を押すと、入力欄に入ります。',
-    size: 'xs',
-    color: '#666666',
-    wrap: true,
-  });
+  bodyContents.push(buildCardNoteText_('「#」のあとに銘柄コードを送ると、注目に入ります。下の言葉を押すと、入力欄に入ります。'));
   bodyContents.push({
     type: 'box',
     layout: 'vertical',
@@ -431,33 +297,16 @@ function buildUsageGuideFlexMessage_(options) {
     contents: cards.map(buildUsageRow_),
   });
 
-  const bubble = {
-    type: 'bubble',
+  return buildBandCardMessage_({
+    altText: settings.altText || '使い方：#7203 で注目に入れる・#注目一覧 で一覧を見る・#解除 7203 で外す',
     size: 'mega',
     header: buildCardBandHeader_(settings.bandText || '❓ 使い方', '注目銘柄を、みんなで共有'),
-    styles: buildCardBandStyles_(),
-    body: {
-      type: 'box',
-      layout: 'vertical',
-      spacing: 'md',
-      contents: bodyContents,
-    },
-  };
-  if (settings.watchlistUrl) {
-    bubble.footer = {
-      type: 'box',
-      layout: 'vertical',
-      contents: [
-        buildCardButton_('📋 注目一覧を開く', { type: 'uri', uri: settings.watchlistUrl }, true),
-      ],
-    };
-  }
-
-  return {
-    type: 'flex',
-    altText: settings.altText || '使い方：#7203 で注目に入れる・#注目一覧 で一覧を見る・#解除 7203 で外す',
-    contents: bubble,
-  };
+    bodySpacing: 'md',
+    bodyContents: bodyContents,
+    footer: settings.watchlistUrl ? buildCardButtonFooter_([
+      buildCardButton_('📋 注目一覧を開く', { type: 'uri', uri: settings.watchlistUrl }, true),
+    ]) : null,
+  });
 }
 
 // 注目に入れたときのカード（そのときの株価）
@@ -554,14 +403,9 @@ function buildWatchQuoteCard_(options) {
     });
   }
 
-  bodyContents.push({
-    type: 'text',
-    text: '注目 ' + toLineText_(record.addedByDisplayName, '-') + '・' + toLineText_(marketTicker, '-') + '・Google Finance',
-    size: 'xxs',
-    color: '#666666',
-    wrap: true,
+  bodyContents.push(Object.assign(buildCardNoteText_('注目 ' + toLineText_(record.addedByDisplayName, '-') + '・' + toLineText_(marketTicker, '-') + '・Google Finance', 'xxs'), {
     margin: 'md',
-  });
+  }));
 
   const buttons = [];
   if (options.watchlistUrl) {
@@ -569,28 +413,14 @@ function buildWatchQuoteCard_(options) {
   }
   buttons.push(buildCardButton_('🔍 株探で見る', { type: 'uri', uri: buildKabutanUrl_(record.ticker) }, !options.watchlistUrl));
 
-  return {
-    type: 'flex',
+  return buildBandCardMessage_({
     altText: options.altText,
-    contents: {
-      type: 'bubble',
-      size: 'mega',
-      header: buildCardBandHeader_(options.bandText, toLineText_((marketFlag ? marketFlag + ' ' : '') + title, '銘柄情報')),
-      body: {
-        type: 'box',
-        layout: 'vertical',
-        spacing: 'sm',
-        contents: bodyContents,
-      },
-      footer: {
-        type: 'box',
-        layout: 'horizontal',
-        spacing: 'sm',
-        contents: buttons,
-      },
-      styles: buildCardBandStyles_(),
-    },
-  };
+    size: 'mega',
+    header: buildCardBandHeader_(options.bandText, toLineText_((marketFlag ? marketFlag + ' ' : '') + title, '銘柄情報')),
+    bodyContents: bodyContents,
+    // ボタンは横に2つ並べる
+    footer: { type: 'box', layout: 'horizontal', spacing: 'sm', contents: buttons },
+  });
 }
 
 // 時価総額・PER・出来高のうち、あるものだけの箱
@@ -621,7 +451,7 @@ function buildMetricBox_(label, value) {
         type: 'text',
         text: toLineText_(label, '-'),
         size: 'xxs',
-        color: '#666666',
+        color: CARD_MUTED_TEXT_COLOR_,
         align: 'center',
       },
       {
@@ -640,27 +470,70 @@ function buildMetricBox_(label, value) {
 function getQuoteChangeColor_(value) {
   const number = Number(value);
   if (Number.isNaN(number) || number === 0) {
-    return '#666666';
+    return CARD_MUTED_TEXT_COLOR_;
   }
-  return number > 0 ? '#0B8F55' : '#C0392B';
+  return number > 0 ? CARD_UP_COLOR_ : CARD_DOWN_COLOR_;
 }
 
 // 「+1.23%」は緑、「-1.23%」は赤、それ以外（「-」だけ・0）は灰色
 function getSignedTextColor_(text) {
   const value = String(text || '');
   if (/^\+\d/.test(value)) {
-    return '#0B8F55';
+    return CARD_UP_COLOR_;
   }
   if (/^-\d/.test(value)) {
-    return '#C0392B';
+    return CARD_DOWN_COLOR_;
   }
-  return '#666666';
+  return CARD_MUTED_TEXT_COLOR_;
 }
 
 // この画面・ボットの色（LIFF 画面の --ls-accent と同じ）
 const BOT_ACCENT_COLOR_ = '#0F766E';
 
 const BOT_ACCENT_SUB_TEXT_COLOR_ = '#D2EEE8';
+
+// 説明・補足の文の色（灰色）と、上がった・下がったときの色
+const CARD_MUTED_TEXT_COLOR_ = '#666666';
+
+const CARD_UP_COLOR_ = '#0B8F55';
+
+const CARD_DOWN_COLOR_ = '#C0392B';
+
+// 色の帯のカード1枚。header は buildCardBandHeader_ の帯、bodyContents は中身、footer は下（なくてよい）。
+// size：カードの大きさ（なくてよい）・bodySpacing：中身のすきま（決まりは sm）
+function buildBandCardMessage_(options) {
+  const bubble = { type: 'bubble' };
+  if (options.size) {
+    bubble.size = options.size;
+  }
+  bubble.header = options.header;
+  bubble.styles = buildCardBandStyles_();
+  bubble.body = {
+    type: 'box',
+    layout: 'vertical',
+    spacing: options.bodySpacing || 'sm',
+    contents: options.bodyContents,
+  };
+  if (options.footer) {
+    bubble.footer = options.footer;
+  }
+  return { type: 'flex', altText: options.altText, contents: bubble };
+}
+
+// カードの下に、ボタンをたてに並べる
+function buildCardButtonFooter_(buttons) {
+  return { type: 'box', layout: 'vertical', contents: buttons };
+}
+
+// カードの中のふつうの文
+function buildCardBodyText_(text) {
+  return { type: 'text', text: text, size: 'sm', wrap: true };
+}
+
+// カードの中の説明・補足の文（小さく灰色）。size は決まりが xs
+function buildCardNoteText_(text, size) {
+  return { type: 'text', text: text, size: size || 'xs', color: CARD_MUTED_TEXT_COLOR_, wrap: true };
+}
 
 // 色の帯：小さく区分・日付、太く見出し
 function buildCardBandHeader_(smallText, titleText) {
@@ -724,7 +597,7 @@ function buildMainQuickReply_(groupId, leadingItems) {
     type: 'action',
     action: Object.assign({ label: '📌 銘柄を注目する' }, buildKeyboardPrefillAction_('#')),
   });
-  items.push({ type: 'action', action: { type: 'message', label: '❓ 使い方', text: '#使い方' } });
+  items.push(buildMessageQuickReplyItem_('❓ 使い方', '#使い方'));
   return { items: items };
 }
 
