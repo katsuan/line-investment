@@ -13,7 +13,6 @@
   --ls-line: rgba(35, 50, 61, 0.12);
   --ls-line-strong: rgba(35, 50, 61, 0.22);
   --ls-tabs-bg: #dde7e3;
-  --ls-shadow: 0 10px 28px rgba(38, 66, 54, 0.08);
   --ls-font: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
 
   /* 上がった・下がった */
@@ -55,7 +54,7 @@
 }
 
 .ls-button.is-small {
-  padding: 0 14px;
+  padding: 0 var(--ls-space-m, 16px);
   font-size: 13px;
 }
 
@@ -63,11 +62,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .outside-note {
-  gap: 10px;
+  gap: var(--ls-space-s, 8px);
   border-color: var(--ls-accent);
 }
 
@@ -77,7 +76,7 @@
 
 .recent {
   display: grid;
-  gap: 8px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .recent .ls-label {
@@ -103,7 +102,7 @@
 
 .card-list {
   display: grid;
-  gap: 12px;
+  gap: var(--ls-space-m, 16px);
 }
 
 .card-list:empty {
@@ -113,7 +112,7 @@
 /* 読みこみ中の箱（中身と同じくらいの高さ） */
 .skeleton-list {
   display: grid;
-  gap: 10px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .skeleton-list .ls-skeleton:first-child {
@@ -127,7 +126,7 @@
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 12px;
+  gap: var(--ls-space-s, 8px) var(--ls-space-m, 16px);
 }
 
 .watchlist-summary {
@@ -154,7 +153,7 @@
 
 .watchlist-table th,
 .watchlist-table td {
-  padding: 10px 12px;
+  padding: var(--ls-space-s, 8px);
   border-bottom: 1px solid var(--ls-line);
   text-align: left;
   vertical-align: middle;
@@ -189,7 +188,7 @@
   background: transparent;
   color: var(--ls-text);
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -198,7 +197,7 @@
 }
 
 .watchlist-head-cell {
-  padding-right: 18px;
+  padding-right: var(--ls-space-m, 16px);
 }
 
 .column-resizer {
@@ -223,8 +222,8 @@
 }
 
 .filter-row th {
-  padding-top: 8px;
-  padding-bottom: 8px;
+  padding-top: var(--ls-space-s, 8px);
+  padding-bottom: var(--ls-space-s, 8px);
 }
 
 .table-filter-input,
@@ -232,7 +231,7 @@
   width: 100%;
   min-width: 84px;
   min-height: 40px;
-  padding: 6px 10px;
+  padding: var(--ls-space-xs, 4px) var(--ls-space-s, 8px);
   border: 1px solid var(--ls-line-strong);
   border-radius: var(--ls-radius-sm);
   background: var(--ls-surface);
@@ -241,13 +240,13 @@
 
 .table-filter-select {
   min-width: 96px;
-  padding: 4px 6px;
+  padding: var(--ls-space-xs, 4px);
 }
 
 .filter-pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .company-cell {
@@ -255,17 +254,16 @@
 }
 
 .table-empty {
-  padding: 20px 12px;
+  padding: var(--ls-space-l, 24px) var(--ls-space-m, 16px);
   color: var(--ls-subtext);
-  text-align: center;
 }
 
 /* ---- 株価・実績のカード ---- */
 
 .data-card {
   display: grid;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--ls-space-s, 8px);
+  padding: var(--ls-space-m, 16px);
   border: 1px solid var(--ls-line);
   border-radius: var(--ls-radius-md);
   background: var(--ls-surface-sub);
@@ -283,7 +281,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .record-row {
@@ -297,9 +295,15 @@
   min-width: 0;
 }
 
+/* 空白のない長い銘柄名でも、せまい画面で横にはみ出さない */
+.title-block h3,
+.title-block h4 {
+  overflow-wrap: anywhere;
+}
+
 .title-block p,
 .metric-block p {
-  margin-top: 4px;
+  margin-top: var(--ls-space-xs, 4px);
   color: var(--ls-subtext);
   font-size: 12px;
 }
@@ -313,7 +317,7 @@
   flex: 0 0 auto;
   align-items: center;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--ls-space-m, 16px);
   border: 1px solid var(--ls-line);
   border-radius: 999px;
   background: var(--ls-surface);
@@ -335,7 +339,7 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ls-space-s, 8px);
 }
 
 .ranking-head h3 {
@@ -346,9 +350,9 @@
 .ranking-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 12px;
+  gap: var(--ls-space-s, 8px);
   align-items: center;
-  padding: 10px 0;
+  padding: var(--ls-space-s, 8px) 0;
   border-top: 1px solid var(--ls-line);
 }
 
@@ -363,7 +367,7 @@
 .member-cell {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--ls-space-s, 8px);
   min-width: 0;
 }
 
@@ -406,7 +410,7 @@
 .debug-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--ls-space-s, 8px);
   margin: 0;
 }
 
@@ -415,7 +419,7 @@
 }
 
 .badge {
-  padding: 4px 10px;
+  padding: var(--ls-space-xs, 4px) var(--ls-space-s, 8px);
   border-radius: 999px;
   background: var(--ls-surface-sub);
   color: var(--ls-subtext);
