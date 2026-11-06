@@ -58,29 +58,61 @@ function qCheckProperties_(add) {
     if (props[key]) add('✅', '設定', key + ' がある');
     else add('❌', '設定', key + ' がない（スクリプト プロパティに入れる）');
   });
-  // 鍵の値が、コードの中の文字と同じになっていないか（コードに書いてしまっていないか）
-  (config.secretProperties || []).forEach(function (key) {
-    var value = props[key];
-    if (!value || value.length < 12) return;
-    var found = qSourceContains_(value);
-    if (found === null) add('⚠️', '設定', key + '：コードの中は確かめられませんでした');
-    else if (found) add('❌', '設定', key + ' と同じ文字がコードに書かれています（消して、鍵を作りなおす）');
+  // 鍵の値が、コードの中の文字と同じになっていないか（コードに書いてしまっていないか）。
+  // コードは Apps Script API で読む。読めたか・読めない理由を1行出す（API がオフ・許可がない、など）
+  var secrets = (config.secretProperties || []).filter(function (key) {
+    return props[key] && props[key].length >= 12;
+  });
+  if (!secrets.length) return;
+  var source = qReadSource_();
+  if (source.error) {
+    add('⚠️', '設定', 'Apps Script API：' + source.error + '（鍵がコードに書かれていないかは確かめられませんでした）');
+    return;
+  }
+  add('✅', '設定', 'Apps Script API：コードを読めた');
+  secrets.forEach(function (key) {
+    var found = source.files.some(function (f) {
+      return String(f.source || '').indexOf(props[key]) !== -1;
+    });
+    if (found) add('❌', '設定', key + ' と同じ文字がコードに書かれています（消して、鍵を作りなおす）');
     else add('✅', '設定', key + ' はコードに書かれていない');
   });
 }
 
-// コードの中に文字があるか（Apps Script API が使えるときだけ。使えなければ null）
-function qSourceContains_(text) {
+// このプロジェクトのコードを Apps Script API で読む。{ files } か、読めない理由 { error } を返す。
+// 読むには、appsscript.json の oauthScopes に script.projects.readonly と、Apps Script の設定で API をオンにすることがいる
+function qReadSource_() {
+  var res;
   try {
     var url = 'https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId() + '/content';
-    var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
-    if (res.getResponseCode() !== 200) return null;
-    return JSON.parse(res.getContentText()).files.some(function (f) {
-      return String(f.source || '').indexOf(text) !== -1;
-    });
+    res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
   } catch (error) {
-    return null;
+    return { error: 'つながりません（' + error.message + '）' };
   }
+  var code = res.getResponseCode();
+  if (code === 200) {
+    try {
+      return { files: JSON.parse(res.getContentText()).files || [] };
+    } catch (error) {
+      return { error: '返事が読めません' };
+    }
+  }
+  return { error: qSourceErrorText_(code, res.getContentText()) };
+}
+
+// Apps Script API の失敗の返事を、直し方のわかる文にする
+function qSourceErrorText_(code, body) {
+  var text = String(body || '');
+  if (/has not enabled the Apps Script API|usersettings/i.test(text)) {
+    return 'オフになっています（https://script.google.com/home/usersettings でオンにする）';
+  }
+  if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(text)) {
+    return 'GAS のつながった Cloud のプロジェクトで、API が使えない設定です（' + code + '）';
+  }
+  if (code === 401 || /SCOPE_INSUFFICIENT|insufficient authentication scopes|PERMISSION_DENIED/i.test(text)) {
+    return 'コードを読む許可がありません（appsscript.json の oauthScopes に script.projects.readonly を足し、エディタで一度実行して許可する）';
+  }
+  return '答えがおかしい（' + code + '）';
 }
 
 // シート：あるか・1行目の見出しがそろっているか（読むだけ）
