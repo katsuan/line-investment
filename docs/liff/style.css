@@ -1,5 +1,5 @@
 /* 投資情報共有の画面。部品（見出しの行・タブ・カード・入力欄・チップ・ボタン・シート・トースト）は Q キット
- * （https://katsuan.github.io/line-share/shared/ui.css）。ここには、この画面の色と、ここにしかない見た目（注目一覧の表・実績）だけを置く */
+ * （https://katsuan.github.io/oqrn/shared/ui.css）。ここには、この画面の色と、ここにしかない見た目（注目一覧の表・実績）だけを置く */
 :root {
   /* Q キットの色を、この画面の色（深い緑）に */
   --ls-accent: #0f766e;
