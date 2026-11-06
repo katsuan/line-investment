@@ -107,7 +107,10 @@ function qSourceErrorText_(code, body) {
     return 'オフになっています（https://script.google.com/home/usersettings でオンにする）';
   }
   if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(text)) {
-    return 'GAS のつながった Cloud のプロジェクトで、API が使えない設定です（' + code + '）';
+    // Google の返事にある「有効にするページ」を出す（なければ、プロジェクトの設定の見方）
+    var link = text.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"'\\<>]+/);
+    return 'GAS のつながった Cloud のプロジェクトで、API がオフです（' + code + '）。' +
+      (link ? link[0] + ' を開いて「有効にする」' : 'GAS の「プロジェクトの設定」の Cloud のプロジェクトで、Apps Script API を有効にする');
   }
   if (code === 401 || /SCOPE_INSUFFICIENT|insufficient authentication scopes|PERMISSION_DENIED/i.test(text)) {
     return 'コードを読む許可がありません（appsscript.json の oauthScopes に script.projects.readonly を足し、エディタで一度実行して許可する）';
