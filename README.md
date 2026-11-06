@@ -41,7 +41,7 @@ GAS のファイルは「番号＋役わり」です（q-oqrn の docs/structure
 | `src/30_cards.gs` | 返事のカード（Flex）とクイックリプライ |
 | `src/40_test_window.gs` | 管理者のテストの窓口（`#テスト`） |
 | `src/90_setup.gs` | シートの用意の中身・決まりのルール |
-| `src/92_selfcheck.config.gs` | 自己点検で見ること（`Q_SELF_CHECK`） |
+| `src/92_selfcheck_config.gs` | 自己点検で見ること（`Q_SELF_CHECK`） |
 | `src/selfcheck.gs` | 自己点検 `qCheckAll` と `safeCell()`（q-oqrn の `tools/qtest/selfcheck.gs` の写し。中身は同じにする） |
 | `src/appsscript.json` | GAS の設定 |
 | `test/` | テスト（`node --test test/`） |
@@ -84,7 +84,7 @@ Apps Script の `プロジェクトの設定` から Script Properties に以下
 
 `clasp push` のあとや、設定を変えたあとは、GAS エディタで `00_run.gs` の `checkAll`（中身は `qCheckAll`）を実行し、実行ログを見ます（✅ だいじょうぶ／⚠️ 見てほしい／❌ 直す）。
 Script Properties・シートの見出し・LINE の鍵と Webhook（合言葉つきか）・主なカードが LINE に受けつけられる形か、を確かめます。何も書きこまず、LINE にも送りません。
-見る項目は `src/92_selfcheck.config.gs` の `Q_SELF_CHECK` です。
+見る項目は `src/92_selfcheck_config.gs` の `Q_SELF_CHECK` です。
 
 ## テスト
 
