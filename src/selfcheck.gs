@@ -28,7 +28,7 @@ function qCheckAll() {
   var add = function (level, area, text) {
     results.push({ level: level, area: area, text: text });
   };
-  var steps = [qCheckProperties_, qCheckSheets_, qCheckLine_, qCheckQuota_, qCheckCards_, qCheckRichMenus_, qCheckTriggers_];
+  var steps = [qCheckProperties_, qCheckSecrets_, qCheckSheets_, qCheckLine_, qCheckQuota_, qCheckCards_, qCheckRichMenus_, qCheckTriggers_];
   steps.forEach(function (step) {
     try {
       step(add);
@@ -58,10 +58,14 @@ function qCheckProperties_(add) {
     if (props[key]) add('✅', '設定', key + ' がある');
     else add('❌', '設定', key + ' がない（スクリプト プロパティに入れる）');
   });
-  // 鍵の値が、コードの中の文字と同じになっていないか（コードに書いてしまっていないか）。
-  // コードは Apps Script API で読む。読めたか・読めない理由を1行出す（API がオフ・許可がない、など）
+}
+
+// 鍵（secretProperties）の値が、コードの中に書かれていないか。コードは Apps Script API で読み、読めたか・読めない理由を1行出す
+function qCheckSecrets_(add) {
+  var config = qSelfCheckConfig_();
+  var props = PropertiesService.getScriptProperties().getProperties();
   var secrets = (config.secretProperties || []).filter(function (key) {
-    return props[key] && props[key].length >= 12;
+    return props[key] && props[key].length >= 12; // 短すぎる値は、ほかの文字とたまたま重なるので見ない
   });
   if (!secrets.length) return;
   var source = qReadSource_();
@@ -90,30 +94,41 @@ function qReadSource_() {
     return { error: 'つながりません（' + error.message + '）' };
   }
   var code = res.getResponseCode();
-  if (code === 200) {
-    try {
-      return { files: JSON.parse(res.getContentText()).files || [] };
-    } catch (error) {
-      return { error: '返事が読めません' };
-    }
+  if (code !== 200) return { error: qSourceErrorText_(code, String(res.getContentText() || '')) };
+  try {
+    return { files: JSON.parse(res.getContentText()).files || [] };
+  } catch (error) {
+    return { error: '返事が読めません' };
   }
-  return { error: qSourceErrorText_(code, res.getContentText()) };
 }
+
+// Apps Script API の失敗の見分け方と、直し方の文（上から順に見る。Cloud の API がオフの返事にも PERMISSION_DENIED が入るので、許可より先に見る）
+var Q_SOURCE_ERRORS_ = [
+  {
+    match: /has not enabled the Apps Script API|usersettings/i,
+    text: function () { return 'オフになっています（https://script.google.com/home/usersettings でオンにする）'; }
+  },
+  {
+    match: /SERVICE_DISABLED|has not been used in project|is disabled/i,
+    text: function (code, body) {
+      // Google の返事にある「有効にするページ」を出す（なければ、プロジェクトの設定の見方）
+      var link = body.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"'\\<>]+/);
+      return 'GAS のつながった Cloud のプロジェクトで、API がオフです（' + code + '）。' +
+        (link ? link[0] + ' を開いて「有効にする」' : 'GAS の「プロジェクトの設定」の Cloud のプロジェクトで、Apps Script API を有効にする');
+    }
+  },
+  {
+    match: function (code, body) { return code === 401 || /SCOPE_INSUFFICIENT|insufficient authentication scopes|PERMISSION_DENIED/i.test(body); },
+    text: function () { return 'コードを読む許可がありません（appsscript.json の oauthScopes に script.projects.readonly を足し、エディタで一度実行して許可する）'; }
+  }
+];
 
 // Apps Script API の失敗の返事を、直し方のわかる文にする
 function qSourceErrorText_(code, body) {
-  var text = String(body || '');
-  if (/has not enabled the Apps Script API|usersettings/i.test(text)) {
-    return 'オフになっています（https://script.google.com/home/usersettings でオンにする）';
-  }
-  if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(text)) {
-    // Google の返事にある「有効にするページ」を出す（なければ、プロジェクトの設定の見方）
-    var link = text.match(/https:\/\/console\.(?:developers|cloud)\.google\.com\/[^\s"'\\<>]+/);
-    return 'GAS のつながった Cloud のプロジェクトで、API がオフです（' + code + '）。' +
-      (link ? link[0] + ' を開いて「有効にする」' : 'GAS の「プロジェクトの設定」の Cloud のプロジェクトで、Apps Script API を有効にする');
-  }
-  if (code === 401 || /SCOPE_INSUFFICIENT|insufficient authentication scopes|PERMISSION_DENIED/i.test(text)) {
-    return 'コードを読む許可がありません（appsscript.json の oauthScopes に script.projects.readonly を足し、エディタで一度実行して許可する）';
+  for (var i = 0; i < Q_SOURCE_ERRORS_.length; i++) {
+    var rule = Q_SOURCE_ERRORS_[i];
+    var hit = typeof rule.match === 'function' ? rule.match(code, body) : rule.match.test(body);
+    if (hit) return rule.text(code, body);
   }
   return '答えがおかしい（' + code + '）';
 }
